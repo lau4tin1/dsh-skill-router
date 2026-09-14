@@ -1,0 +1,13 @@
+# toolchain / dependencies
+node_modules/
+
+# build output (rebuild with `npm run build`)
+lib/
+
+# third-party downloaded skill content (licensed, not part of this repo)
+skills/
+.agents/
+skills-lock.json
+
+# OS
+.DS_Store
