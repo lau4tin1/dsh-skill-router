@@ -1,0 +1,19 @@
+# dsh-skill-router bundle patch.
+#
+# This is the layer `dsh plugin add` mounts: it inserts ONE row into the
+# composed config tree. It is applied after the base and mode bundle layers
+# (dsh-base, dsh-web-app, ...) and before the user's own `cordis.patch.yml`,
+# so a user can still disable or reconfigure this row by id later:
+#
+#   - id: skill-router
+#     disabled: true
+- insert:
+    - id: skill-router
+      name: dsh-skill-router
+      config:
+        enabled: true
+        embedding:
+          model: Xenova/bge-m3
+          dtype: q8
+        minScore: 0.14
+        maxSkills: 4

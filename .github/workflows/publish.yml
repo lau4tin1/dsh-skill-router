@@ -1,0 +1,25 @@
+name: Publish to npm
+
+on:
+  workflow_dispatch:      # 手动触发（Actions 页面点 Run workflow）
+  push:
+    tags:
+      - 'v*'             # 推送 v* 标签时自动发布
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write     # Trusted Publishing (OIDC)：无需任何 npm token / OTP
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+      - run: npm run build        # esbuild -> lib/index.js（lib/ 被 gitignore，发布前现场构建）
+      - run: npm publish --provenance --access public

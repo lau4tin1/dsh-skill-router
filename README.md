@@ -8,9 +8,28 @@ skill.
 
 - **Design**: see [DESIGN.md](DESIGN.md).
 - **Status**: V1 complete and running — type-checks against the real DSH
-  `0.1.2-rc.1` types, builds, mounts in a live DSH profile (verified in the
+  `0.1.5-rc.2` types, builds, mounts in a live DSH profile (verified in the
   web and headless profiles), and passes 20/24 bilingual routing prompts on
   real skills (`node demo/e2e.ts`).
+
+## Install
+
+```sh
+dsh plugin --profile web add dsh-skill-router
+```
+
+Installs into the `web` profile; swap `web` for another profile name to target
+it. Requires [dsh](https://github.com/deepseek-ai/deepseek-harness) and pnpm on
+`PATH`.
+
+> **pnpm 12 build approval** — the first install pulls native dependencies
+> (`onnxruntime-node`, `sharp`, `protobufjs`) whose build scripts pnpm blocks by
+> default. If `dsh plugin` stops with `ERR_PNPM_IGNORED_BUILDS`, open
+> `$DSH_HOME/profiles/<name>/pnpm-workspace.yaml`, set the `allowBuilds` entries
+> pnpm wrote there to `true`, then re-run the same `dsh plugin ... add` command.
+>
+> The first real task downloads the embedding model once (~543MB, q8) into
+> `$DSH_HOME/skill-router/models`, then runs fully offline.
 
 ## Layout
 
@@ -90,4 +109,4 @@ model id), so unchanged skills are never re-embedded after a restart.
 `node_modules/@deepseek-ai` and `node_modules/js-yaml` are local symlinks into
 a DSH checkout for type-checking and demos; recreate them after a fresh
 install. At runtime a real DSH profile provides the `@deepseek-ai/*` packages
-(they are declared as optional peers and kept external by the build).
+(they are declared as `peerDependencies` and kept external by the build).
