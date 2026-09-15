@@ -33,7 +33,9 @@ npm run build      # esbuild -> lib/index.js (@deepseek-ai/* kept external)
 
 ## Demo
 
-Put skills under `skills/skills/` (see DESIGN.md §14 for where DSH scans), then:
+Skills live in `.agents/skills/` — a real DSH scanned root (rank 200, see
+DESIGN.md §14). The demo parses them the same way the registry would surface
+them:
 
 ```sh
 node demo/e2e.ts           # plugin defaults

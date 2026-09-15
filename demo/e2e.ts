@@ -40,13 +40,19 @@ const CASES: { prompt: string; expected: string[] }[] = [
   { prompt: 'how do I learn to use claude', expected: ['academy-guide'] },
   { prompt: 'debug this failing playwright test for my web app', expected: ['webapp-testing'] },
   { prompt: 'build an MCP server in python that calls an api', expected: ['mcp-builder'] },
-  { prompt: 'deploy my app to production', expected: [] },
+  { prompt: 'deploy my app to production', expected: ['deploy-to-vercel'] },
+  { prompt: 'my app has a bug, help me fix it', expected: ['systematic-debugging'] },
+  { prompt: 'build a chat app with a node backend', expected: ['fullstack-dev'] },
+  { prompt: 'how do I use the openai api', expected: ['openai-docs'] },
+  { prompt: 'make a landing page with animations for my startup', expected: ['frontend-dev'] },
   { prompt: 'hello, how are you today?', expected: [] },
 ];
 
 /** Read every <skill>/SKILL.md and extract its routing surface (frontmatter). */
 function loadSkills(): RoutingSkill[] {
-  const root = join(import.meta.dirname, '..', 'skills', 'skills');
+  // .agents/skills is a real DSH scanned root (rank 200, project-agents);
+  // the plugin itself never reads files — it gets summaries from ctx.skills.
+  const root = join(import.meta.dirname, '..', '.agents', 'skills');
   const files = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => join(root, entry.name, 'SKILL.md'));
@@ -70,7 +76,7 @@ function loadSkills(): RoutingSkill[] {
 
 async function main(): Promise<void> {
   const skills = loadSkills();
-  console.log(`loaded ${skills.length} skills from skills/skills/`);
+  console.log(`loaded ${skills.length} skills from .agents/skills/`);
 
   const backend = createEmbeddingBackend({ provider: 'local' });
   const index = new SkillIndex(backend);

@@ -228,7 +228,7 @@ function tokenize(text: string): string[] {
 const STOPWORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'by', 'can', 'could',
   'do', 'does', 'for', 'from', 'has', 'have', 'how', 'if', 'in', 'into', 'is',
-  'it', 'its', 'like', 'may', 'more', 'most', 'not', 'of', 'on', 'or', 'our',
+  'it', 'its', 'like', 'may', 'me', 'more', 'most', 'my', 'not', 'of', 'on', 'or', 'our',
   'out', 'so', 'such', 'than', 'that', 'the', 'their', 'them', 'then', 'there',
   'these', 'they', 'this', 'those', 'through', 'to', 'too', 'up', 'use', 'used',
   'uses', 'using', 'want', 'wants', 'was', 'we', 'what', 'when', 'where',

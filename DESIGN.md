@@ -479,7 +479,14 @@ real config schema (schemastery) — this is the shape, not the contract.
 ## 14. Note on demo skills
 
 For local testing, skills must land where the filesystem provider scans. The
-default project root is `<projectRoot>/.dsh/skills` (or `.agents/skills`), and
-the user root is `~/.dsh/skills`. A bare `skills/` directory at the workspace
-root is **not** a default root — either put skills under `.dsh/skills` or point
-`customSkillDirs` at `./skills`.
+default project roots are `<projectRoot>/.dsh/skills` (rank 100) and
+`<projectRoot>/.agents/skills` (rank 200), plus the user root `~/.dsh/skills`
+(rank 400). A bare `skills/` directory at the workspace root is **not** a
+default root.
+
+The demo corpus lives in `.agents/skills/` (24 skills — Anthropic's set plus
+vercel/community skills), so at runtime the mounted plugin discovers and
+watches them automatically; `demo/e2e.ts` parses the same files standalone.
+The provider watches these roots, so adding/renaming/deleting a skill or
+editing its frontmatter mid-session triggers `skills/change` → the router
+re-syncs and re-embeds only what changed.
