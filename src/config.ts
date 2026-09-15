@@ -66,11 +66,14 @@ export const Config = z.object({
   }),
   cacheDir: z.string(),
   rule: z.union(['largest-gap', 'ratio-to-max']).default('largest-gap'),
-  // Weak floor on the TOP score ("is anything relevant at all?").
+  // Confidence floor on the TOP score ("is anything relevant at all?").
   // Calibrated for the default bge-m3 model on the 24-skill demo corpus
-  // (centered cosine): correct matches >= 0.27, unrelated noise <= 0.12.
-  // Re-calibrate whenever the model or the corpus changes.
-  minScore: z.number().default(0.12),
+  // (centered cosine): confident matches >= 0.18, diffuse noise <= 0.13.
+  // We bias PRECISION over RECALL on purpose: injecting a wrong skill body is
+  // more harmful than missing a weak match. Known trade-off: the weakest real
+  // case (zh "项目进度报告", ~0.126) sits just below this floor and will not
+  // inject. Re-calibrate whenever the model or the corpus changes.
+  minScore: z.number().default(0.14),
   ratioThreshold: z.number().default(0.75),
   maxSkills: z.natural().min(1).default(4),
   maxInjectedBytes: z.natural().min(1).default(65536),

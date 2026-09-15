@@ -293,7 +293,7 @@ is the natural upgrade if real sessions show it misfiring.
 | Param | Default | Meaning |
 |---|---|---|
 | `rule` | `largest-gap` | `largest-gap` \| `ratio-to-max` |
-| `minScore` | `0.12` | Weak floor on the *top* score: "is anything relevant at all?". Calibrated for the default MiniLM model on the demo corpus (matches ≥ 0.21, noise ≤ 0.09); re-calibrate when the model or corpus changes. |
+| `minScore` | `0.14` | Confidence floor on the *top* score: "is anything relevant at all?". Calibrated for the default bge-m3 model (centered cosine): confident matches ≥ 0.18, diffuse noise ≤ 0.13. Precision is biased over recall — a wrong skill body is worse than a missed weak match; the weakest real case (zh 进度报告 ~0.126) sits just under the floor. |
 | `ratioThreshold` | `0.75` | Used only when `rule: ratio-to-max`. |
 | `maxSkills` | `4` | Hard cardinality cap. |
 | `maxInjectedBytes` | `65536` | Hard cap on total injected body bytes. |
@@ -334,10 +334,11 @@ body can be Chinese. The injected block is bilingual (中文/English).
 The interface stays so the index/selection logic is decoupled from the model
 runtime (and a different engine could be added without touching the pipeline).
 
-**Calibration** (weak `minScore` floor, measured on the 24-skill demo corpus
-with the default model, centered cosine): `0.12` — correct matches ≥ 0.27,
-unrelated noise ≤ 0.12. Re-tune whenever the model or corpus changes; the
-floor is never portable as-is.
+**Calibration** (confidence `minScore` floor, measured on the 24-skill demo
+corpus with the default model, centered cosine): `0.14` — confident matches
+≥ 0.18, diffuse noise ≤ 0.13. Precision is biased over recall (a wrong skill
+body is worse than a missed weak match). Re-tune whenever the model or corpus
+changes; the floor is never portable as-is.
 
 ---
 
@@ -429,16 +430,15 @@ Keep both as config choices; the router itself is orthogonal to the tool.
   config:
     enabled: true
     embedding:
-      model: onnx-community/all-MiniLM-L6-v2-ONNX   # optional; any HF ONNX model
-      dtype: fp32                                    # or q8 (~4x smaller)
-      dimensions: 384                                # optional; validated
+      model: Xenova/bge-m3                        # optional; any HF ONNX model
+      dtype: q8                                   # or fp32
+      dimensions: 1024                            # optional; validated
     cacheDir: ~/.dsh/skill-router     # optional; model weights + index file live here
     rule: largest-gap          # 'largest-gap' | 'ratio-to-max'
-    minScore: 0.12             # weak floor, calibrated for the default model
+    minScore: 0.14             # confidence floor (precision > recall)
     ratioThreshold: 0.75       # only used when rule: ratio-to-max
     maxSkills: 4
     maxInjectedBytes: 65536
-    indexStorage: {}                  # route to ctx.storage json backend
 ```
 
 Exact field names/shapes are to be finalized at implementation against the

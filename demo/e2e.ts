@@ -45,6 +45,8 @@ const CASES: { prompt: string; expected: string[] }[] = [
   { prompt: 'how do I use the openai api', expected: ['openai-docs'] },
   { prompt: 'make a landing page with animations for my startup', expected: ['frontend-dev'] },
   { prompt: 'hello, how are you today?', expected: [] },
+  // A "meta" / weak prompt like a debugging chat — nothing should inject.
+  { prompt: '帮我排查一下 skill-router 插件的注入问题', expected: [] },
   // Chinese prompts against the English skill catalog: cross-lingual routing.
   { prompt: '把几个pdf文件合并成一个文档', expected: ['pdf'] },
   { prompt: '用这个csv数据创建一个电子表格', expected: ['xlsx'] },

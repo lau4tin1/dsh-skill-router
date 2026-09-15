@@ -7,18 +7,17 @@ auto-injects their full bodies into the prompt — no model round-trip to load a
 skill.
 
 - **Design**: see [DESIGN.md](DESIGN.md).
-- **Status**: V1 code complete — type-checks against the real DSH `0.1.2-rc.1`
-  types, builds, and passes 20/23 bilingual routing prompts on real skills
-  (7/7 Chinese, 13/16 English; see `demo/e2e.ts` for the case list)
-  (`node demo/e2e.ts`). **Not yet mounted into a live DSH profile** — that
-  integration step is intentionally deferred.
+- **Status**: V1 complete and running — type-checks against the real DSH
+  `0.1.2-rc.1` types, builds, mounts in a live DSH profile (verified in the
+  web and headless profiles), and passes 20/24 bilingual routing prompts on
+  real skills (`node demo/e2e.ts`).
 
 ## Layout
 
 - `src/index.ts` — the Cordis plugin entry (`name` / `inject` / `Config` / `apply`).
 - `src/selection.ts` — the selection rule (largest-gap / ratio-to-max, weak floor).
 - `src/similarity.ts` — normalization + cosine similarity (pure).
-- `src/embedding.ts` — embedding backends: `local` (offline hashing vectorizer) and `http` (OpenAI-compatible).
+- `src/embedding.ts` — one real embedding model via transformers.js (ONNX).
 - `src/skillIndex.ts` — the index: build, embed, digest-diff sync on change.
 - `src/config.ts` — schemastery config schema + mappers.
 - `src/render.ts` — renders the injected `<system-reminder>` block (reuses DSH's `renderSkillContent`).
@@ -52,7 +51,7 @@ embedding:
   dtype: q8                                     # or fp32
 cacheDir: ~/.dsh/skill-router                   # optional; models + index live here
 rule: largest-gap                               # or ratio-to-max
-minScore: 0.12                                  # weak floor, calibrated for the default model
+minScore: 0.14                                  # confidence floor (precision > recall)
 ratioThreshold: 0.75
 maxSkills: 4
 maxInjectedBytes: 65536
