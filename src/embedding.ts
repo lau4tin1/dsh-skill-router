@@ -263,9 +263,20 @@ async function main(): Promise<void> {
   const vectors = await backend.embed(texts);
 
   for (let i = 0; i < texts.length; i++) {
-    const head = vectors[i].slice(0, 5).map((x) => x.toFixed(4)).join(', ');
+    const v = vectors[i];
+    // The local backend is SPARSE: each word lands in exactly one of the
+    // 4096 slots, so a short sentence leaves almost every slot at 0. Print
+    // the non-zero slots instead of the first five (which are usually 0).
+    let nonZero = 0;
+    const hits: string[] = [];
+    for (let j = 0; j < v.length; j++) {
+      if (v[j] !== 0) {
+        nonZero += 1;
+        if (hits.length < 5) hits.push(`${j}:${v[j].toFixed(3)}`);
+      }
+    }
     console.log(`\n"${texts[i]}"`);
-    console.log(`  len=${vectors[i].length}  first 5 = [${head}]`);
+    console.log(`  dims=${v.length}  non-zero=${nonZero}/${v.length}  slots=[${hits.join(', ')}]`);
   }
 
   console.log('\ncosine similarity (vectors are unit-length, so cosine == dot):');
