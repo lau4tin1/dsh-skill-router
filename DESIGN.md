@@ -293,7 +293,7 @@ is the natural upgrade if real sessions show it misfiring.
 | Param | Default | Meaning |
 |---|---|---|
 | `rule` | `largest-gap` | `largest-gap` \| `ratio-to-max` |
-| `minScore` | `0.08` | Weak floor on the *top* score: "is anything relevant at all?". Calibrated on the demo corpus per provider: `local` → `0.08`, `transformers` → `0.12`; re-calibrate when the provider/model/corpus changes. |
+| `minScore` | `0.12` | Weak floor on the *top* score: "is anything relevant at all?". Calibrated for the default MiniLM model on the demo corpus (matches ≥ 0.21, noise ≤ 0.09); re-calibrate when the model or corpus changes. |
 | `ratioThreshold` | `0.75` | Used only when `rule: ratio-to-max`. |
 | `maxSkills` | `4` | Hard cardinality cap. |
 | `maxInjectedBytes` | `65536` | Hard cap on total injected body bytes. |
@@ -303,26 +303,26 @@ per-query scores so they can be tuned against real sessions.
 
 ---
 
-## 7. Embedding backend (implemented: local, transformers, http)
+## 7. Embedding backend (implemented: one real local model)
 
 DSH has no embeddings service, so the plugin owns the embedding call behind a
-small interface (`EmbeddingBackend.embed(texts)`), with three implementations:
+small interface (`EmbeddingBackend.embed(texts)`), with one implementation:
 
-- **`local`** — hashing vectorizer (sparse, lexical, zero deps). Offline and
-  instant; the fallback/test stub. Shares words only — no synonyms.
-- **`transformers`** — a real local model via transformers.js
-  (`onnx-community/all-MiniLM-L6-v2-ONNX`, 384-dim dense). ~90MB first-run
-  download from huggingface.co, then fully offline. Semantic matching.
-- **`http`** — OpenAI-compatible `POST /v1/embeddings` client (OpenAI, any
-  gateway, or a local server such as Ollama/TEI/LM Studio). Config:
-  `baseURL`, `model`, `apiKeyEnv`, `dimensions`.
+- **transformers.js (ONNX)** — a real semantic model running in-process.
+  Default `onnx-community/all-MiniLM-L6-v2-ONNX` (384-dim dense vectors).
+  The model downloads from huggingface.co on first use (~90MB fp32; `q8` is
+  ~4x smaller with tiny quality loss) into `<cacheDir>/models` under
+  `~/.dsh` — outside the working directory — and then runs fully offline.
+  Bigger models are a config change (`embedding.model`): `bge-base-en-v1.5`
+  (~110MB) or `bge-large-en-v1.5` (~1.3GB, near-SOTA retrieval).
 
-**Calibration per provider** (weak `minScore` floor measured on the 24-skill
-demo corpus): `local` → `0.08` (matches ~0.28–0.53, noise ~0.00–0.07);
-`transformers` → `0.12` (matches ≥ 0.21, noise ≤ 0.09). Re-tune whenever the
-provider, model, or corpus changes — the floor is never portable as-is.
-(DeepSeek's own API exposes chat models, not a public embeddings endpoint, so
-the `http` route is for external/local embedders.)
+The interface stays so the index/selection logic is decoupled from the model
+runtime (and a different engine could be added without touching the pipeline).
+
+**Calibration** (weak `minScore` floor, measured on the 24-skill demo corpus
+with the default model): `0.12` — correct matches ≥ 0.21, unrelated noise
+≤ 0.09. Re-tune whenever the model or corpus changes; the floor is never
+portable as-is.
 
 ---
 
@@ -335,8 +335,12 @@ the `http` route is for external/local embedders.)
 - Keyed by a **digest of the routing text** (not the name) so edits re-embed
   only changed skills. Name changes are handled by digest mismatch + old-entry
   removal.
-- Persist the index to a JSON sidecar via `ctx.storage` so restarts don't
-  re-embed the world. Watch `skills/change` (the registry emits it on
+- Persist the index to `<cacheDir>/skill-index.json` (default
+  `~/.dsh/skill-router/`), tagged with the backend/model id. On startup the
+  file is restored, so unchanged skills are never re-embedded; `sync()`
+  re-embeds only entries whose routing digest changed. Writes are atomic
+  (temp file + rename), a model switch invalidates the file, and a failed
+  save never fails the turn. Watch `skills/change` (the registry emits it on
   invalidation) and re-embed only changed entries.
 
 ### 8.2 Query time
@@ -410,12 +414,12 @@ Keep both as config choices; the router itself is orthogonal to the tool.
   config:
     enabled: true
     embedding:
-      provider: local                 # local | transformers | http
-      # transformers (optional): model id, default onnx-community/all-MiniLM-L6-v2-ONNX
-      # http (required): baseURL, model, apiKeyEnv
-      dimensions: 1024                # optional; local default 4096, transformers 384
+      model: onnx-community/all-MiniLM-L6-v2-ONNX   # optional; any HF ONNX model
+      dtype: fp32                                    # or q8 (~4x smaller)
+      dimensions: 384                                # optional; validated
+    cacheDir: ~/.dsh/skill-router     # optional; model weights + index file live here
     rule: largest-gap          # 'largest-gap' | 'ratio-to-max'
-    minScore: 0.08             # weak floor: local 0.08, transformers ~0.12, http re-tune
+    minScore: 0.12             # weak floor, calibrated for the default model
     ratioThreshold: 0.75       # only used when rule: ratio-to-max
     maxSkills: 4
     maxInjectedBytes: 65536

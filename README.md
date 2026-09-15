@@ -39,31 +39,36 @@ them:
 
 ```sh
 node demo/e2e.ts           # plugin defaults
-node demo/e2e.ts 0.1       # experiment with the minScore floor
+node demo/e2e.ts 0.2       # experiment with the minScore floor
 ```
 
 ## Config (defaults)
 
 ```yaml
 enabled: true
-embedding: { provider: local }   # local | transformers | http
-rule: largest-gap                # or ratio-to-max
-minScore: 0.08                   # calibrated for `local`; use ~0.12 for `transformers`, re-tune for http
+embedding:
+  model: onnx-community/all-MiniLM-L6-v2-ONNX   # optional; any HF ONNX embedding model
+  dtype: fp32                                   # or q8 (~4x smaller download)
+cacheDir: ~/.dsh/skill-router                   # optional; models + index live here
+rule: largest-gap                               # or ratio-to-max
+minScore: 0.12                                  # weak floor, calibrated for the default model
 ratioThreshold: 0.75
 maxSkills: 4
 maxInjectedBytes: 65536
 ```
 
-### Embedding backends
+### Embedding model
 
-- **`local`** — offline hashing vectorizer (sparse, lexical). Zero dependencies,
-  deterministic, instant; the test/stub default.
-- **`transformers`** — a real embedding model running locally via
-  transformers.js (`onnx-community/all-MiniLM-L6-v2-ONNX`, 384-dim dense
-  vectors). ~90MB model download on first use (huggingface.co), fully offline
-  afterwards. Semantic: synonyms and paraphrases match.
-- **`http`** — any OpenAI-compatible embeddings API (`baseURL` / `model` /
-  `apiKeyEnv`), or a local server (Ollama, TEI, LM Studio).
+One engine: a real local model via transformers.js (ONNX) — dense semantic
+vectors; synonyms and paraphrases match, word sharing is not required.
+Default `onnx-community/all-MiniLM-L6-v2-ONNX` (384-dim, ~90MB). Quality/size
+trade-off: `Xenova/bge-base-en-v1.5` (~110MB, better) or
+`Xenova/bge-large-en-v1.5` (~1.3GB, near-SOTA, ~5-8x slower).
+
+All heavy data lives OUTSIDE the working directory: the model downloads once
+from huggingface.co into `<cacheDir>/models`, and the skill-embedding index
+persists at `<cacheDir>/skill-index.json` (atomic writes, tagged with the
+model id), so unchanged skills are never re-embedded after a restart.
 
 ## Dev note
 

@@ -20,6 +20,7 @@
  * Design reference: DESIGN.md §8 (lifecycle) and §10 (configuration).
  */
 
+import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
@@ -31,7 +32,7 @@ import { SkillIndex } from './skillIndex.ts';
 import { cosine } from './similarity.ts';
 import { selectSkills } from './selection.ts';
 import type { ScoredSkill } from './selection.ts';
-import { Config, toEmbeddingConfig, toSelectionConfig } from './config.ts';
+import { Config, resolveCacheDir, toEmbeddingConfig, toSelectionConfig } from './config.ts';
 import { renderSelection } from './render.ts';
 import type { SelectedSkill } from './render.ts';
 
@@ -42,9 +43,20 @@ export const inject = ['skills', 'agents'];
 export function apply(ctx: Context, config: Config): void {
   if (!config.enabled) return;
 
-  const backend = createEmbeddingBackend(toEmbeddingConfig(config));
+  // All persisted data lives OUTSIDE the working directory:
+  //   <cacheRoot>/models           — the downloaded embedding model
+  //   <cacheRoot>/skill-index.json — the persisted skill embeddings
+  const cacheRoot = resolveCacheDir(config);
+  const backend = createEmbeddingBackend({
+    ...toEmbeddingConfig(config),
+    cacheDir: join(cacheRoot, 'models'),
+  });
   const index = new SkillIndex(backend);
   const selection = toSelectionConfig(config);
+  const indexFile = join(cacheRoot, 'skill-index.json');
+  // Restore the persisted index exactly once (first pre-step), so unchanged
+  // skills are not re-embedded after a restart.
+  let indexRestored = false;
   // NOTE: config.maxInjectedBytes is reserved for a body-truncation pass (v1.1);
   // the selection cap (maxSkills) already bounds injected volume today.
 
@@ -71,11 +83,19 @@ export function apply(ctx: Context, config: Config): void {
     // 1. Keep the index current. The initial build happens here, lazily, on the
     //    first step (apply() has no agent/cwd yet, so it cannot snapshot there).
     if (dirty || index.size === 0) {
+      if (!indexRestored) {
+        indexRestored = true;
+        await index.loadFromDisk(indexFile);
+      }
       const snapshot = await ctx.skills.snapshot(lookup);
       signal.throwIfAborted();
       if (snapshot.complete) {
         await index.sync(snapshot.skills.filter(isModelInvocable));
         dirty = false;
+        // Persistence is best-effort: a failed save must never fail the turn.
+        index.saveToDisk(indexFile).catch((error) => {
+          console.warn(`skill-router: could not persist index to ${indexFile}:`, error);
+        });
       }
       // Incomplete snapshot: keep last-good index, leave dirty set, retry later.
     }

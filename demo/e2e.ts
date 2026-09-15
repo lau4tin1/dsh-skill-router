@@ -78,23 +78,16 @@ async function main(): Promise<void> {
   const skills = loadSkills();
   console.log(`loaded ${skills.length} skills from .agents/skills/`);
 
-  // EMBEDDING_PROVIDER=transformers node demo/e2e.ts — use the real local model.
-  const provider = process.env.EMBEDDING_PROVIDER ?? 'local';
-  const backend = provider === 'transformers'
-    ? createEmbeddingBackend({ provider: 'transformers' })
-    : createEmbeddingBackend({ provider: 'local' });
+  // The real semantic model (first run downloads it to ~/.dsh/skill-router/models).
+  const backend = createEmbeddingBackend();
   const index = new SkillIndex(backend);
   await index.build(skills);
 
   // The plugin's real config path: YAML -> schema -> toSelectionConfig.
+  // minScore defaults to 0.12 (calibrated for the MiniLM model).
   const selection = toSelectionConfig(Config({}));
   if (process.argv[2] !== undefined) {
     selection.minScore = Number(process.argv[2]);
-  } else if (provider === 'transformers') {
-    // Real models give even unrelated texts a moderate baseline similarity,
-    // so the weak floor sits higher than the hashing vectorizer's 0.08.
-    // Calibrated on this corpus: correct matches >= 0.207, noise <= 0.094.
-    selection.minScore = 0.12;
   }
   console.log(`selection config: rule=${selection.rule} minScore=${selection.minScore} ratioThreshold=${selection.ratioThreshold} maxSkills=${selection.maxSkills}\n`);
 

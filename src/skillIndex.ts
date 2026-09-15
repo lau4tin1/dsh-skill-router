@@ -21,6 +21,8 @@
  */
 
 import { createHash } from 'node:crypto';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { type Embedding, type EmbeddingBackend } from './embedding.ts';
 
 // ---------------------------------------------------------------------------
@@ -151,6 +153,81 @@ export class SkillIndex {
     return { added, removed, changed, unchanged };
   }
 
+  // -------------------------------------------------------------------------
+  // Persistence: the index survives restarts, so skills are only re-embedded
+  // when their routing text (or the model) actually changes.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Save every entry to disk, atomically (write a temp file, then rename over
+   * the target). The payload records which backend/model produced the
+   * vectors, so a model switch invalidates the file instead of mixing
+   * incompatible vector spaces.
+   */
+  async saveToDisk(file: string): Promise<void> {
+    const payload = {
+      backend: {
+        name: this.backend.name,
+        modelId: this.backend.modelId,
+        dimensions: this.backend.dimensions ?? 0,
+      },
+      entries: [...this.entries.values()],
+    };
+    await mkdir(dirname(file), { recursive: true });
+    const tmp = `${file}.tmp`;
+    await writeFile(tmp, JSON.stringify(payload), 'utf8');
+    await rename(tmp, file);
+  }
+
+  /**
+   * Restore entries from a previous run. Returns false when the file is
+   * missing/unreadable or was written by a different backend/model — those
+   * vectors live in another vector space and must not be mixed in.
+   *
+   * Restored entries are still checked by sync(): any skill whose routing
+   * digest changed since the save is simply re-embedded, and skills that no
+   * longer exist are dropped.
+   */
+  async loadFromDisk(file: string): Promise<boolean> {
+    let text: string;
+    try {
+      text = await readFile(file, 'utf8');
+    } catch {
+      return false; // missing/unreadable -> cold start
+    }
+
+    let data: { backend?: { name?: string; modelId?: string; dimensions?: number }; entries?: unknown };
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return false; // corrupt -> ignore and rebuild fresh
+    }
+
+    if (data.backend?.name !== this.backend.name || data.backend?.modelId !== this.backend.modelId) {
+      return false; // different model -> its vectors are not comparable to ours
+    }
+
+    const expected = this.backend.dimensions ?? data.backend?.dimensions;
+    if (!Array.isArray(data.entries)) return false;
+
+    for (const raw of data.entries) {
+      if (typeof raw !== 'object' || raw === null) continue;
+      const entry = raw as { name?: unknown; vector?: unknown; routingDigest?: unknown };
+      if (
+        typeof entry.name !== 'string' ||
+        !Array.isArray(entry.vector) ||
+        typeof entry.routingDigest !== 'string'
+      ) continue;
+      if (expected !== undefined && entry.vector.length !== expected) continue;
+      this.entries.set(entry.name, {
+        name: entry.name,
+        vector: entry.vector as number[],
+        routingDigest: entry.routingDigest,
+      });
+    }
+    return true;
+  }
+
   /** Embed a batch of skills into IndexEntry objects (order preserved). */
   private async embedAll(skills: readonly RoutingSkill[]): Promise<IndexEntry[]> {
     if (skills.length === 0) return [];
@@ -189,7 +266,7 @@ export function routingDigest(skill: RoutingSkill): string {
 
 async function main(): Promise<void> {
   const { createEmbeddingBackend } = await import('./embedding.ts');
-  const backend = createEmbeddingBackend({ provider: 'local' });
+  const backend = createEmbeddingBackend();
   const index = new SkillIndex(backend);
 
   const initial: RoutingSkill[] = [
