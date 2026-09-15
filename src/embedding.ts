@@ -19,6 +19,7 @@
  */
 
 import { normalize } from './similarity.ts';
+import type { FeatureExtractionPipeline } from '@huggingface/transformers';
 
 export type Embedding = number[];
 
@@ -61,12 +62,27 @@ export interface HttpEmbeddingConfig {
   dimensions?: number;
 }
 
-export type EmbeddingConfig = LocalEmbeddingConfig | HttpEmbeddingConfig;
+export interface TransformersEmbeddingConfig {
+  provider: 'transformers';
+  /**
+   * Hugging Face ONNX model id. Defaults to
+   * onnx-community/all-MiniLM-L6-v2-ONNX (384-dimensional dense vectors —
+   * the classic sentence-transformers model).
+   */
+  model?: string;
+  /** Optional expected dimension; validated after the first embedding. */
+  dimensions?: number;
+}
+
+export type EmbeddingConfig = LocalEmbeddingConfig | HttpEmbeddingConfig | TransformersEmbeddingConfig;
 
 /** Pick a backend from config. */
 export function createEmbeddingBackend(config: EmbeddingConfig): EmbeddingBackend {
   if (config.provider === 'local') {
     return new LocalEmbeddingBackend(config.dimensions ?? DEFAULT_LOCAL_DIMENSIONS);
+  }
+  if (config.provider === 'transformers') {
+    return new TransformersEmbeddingBackend(config);
   }
   return new HttpEmbeddingBackend(config);
 }
@@ -131,6 +147,70 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       vector[index] = Math.sign(raw) * (1 + Math.log(Math.abs(raw)));
     }
     return normalize(vector);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Local model: transformers.js (real semantic embeddings, in-process)
+// ---------------------------------------------------------------------------
+
+const DEFAULT_TRANSFORMERS_MODEL = 'onnx-community/all-MiniLM-L6-v2-ONNX';
+
+/**
+ * Runs a real embedding model locally via transformers.js (ONNX). Unlike the
+ * hashing vectorizer this produces DENSE semantic vectors — paraphrases and
+ * synonyms match even with zero shared words, and word order/negation matter.
+ *
+ * The model is downloaded from huggingface.co on FIRST use (~90MB fp32) and
+ * then cached; everything after that runs fully offline. The import is
+ * dynamic so the heavy ONNX runtime only loads when this provider is actually
+ * configured — the hashing provider never pays for it.
+ */
+export class TransformersEmbeddingBackend implements EmbeddingBackend {
+  readonly name = 'transformers';
+  private readonly modelId: string;
+  private _dimensions: number | undefined;
+  private extractorPromise: Promise<FeatureExtractionPipeline> | undefined;
+
+  constructor(config: TransformersEmbeddingConfig) {
+    this.modelId = config.model ?? DEFAULT_TRANSFORMERS_MODEL;
+    this._dimensions = config.dimensions;
+  }
+
+  get dimensions(): number | undefined {
+    return this._dimensions;
+  }
+
+  async embed(texts: readonly string[]): Promise<Embedding[]> {
+    const extractor = await this.getExtractor();
+    const vectors: Embedding[] = [];
+    for (const text of texts) {
+      // Sequential calls: the index embeds tens of short texts, and batching
+      // only pads to the longest one without saving compute.
+      const tensor = await extractor(text, { pooling: 'mean', normalize: true });
+      const vector = Array.from(tensor.data as Float32Array);
+      this.assertDimension(vector.length);
+      vectors.push(vector);
+    }
+    return vectors;
+  }
+
+  private getExtractor(): Promise<FeatureExtractionPipeline> {
+    if (this.extractorPromise === undefined) {
+      this.extractorPromise = (async () => {
+        const { pipeline } = await import('@huggingface/transformers');
+        return pipeline('feature-extraction', this.modelId) as Promise<FeatureExtractionPipeline>;
+      })();
+    }
+    return this.extractorPromise;
+  }
+
+  private assertDimension(dim: number): void {
+    if (this._dimensions === undefined) {
+      this._dimensions = dim;
+    } else if (dim !== this._dimensions) {
+      throw new Error(`transformers: dimension mismatch (expected ${this._dimensions}, got ${dim})`);
+    }
   }
 }
 
@@ -250,8 +330,12 @@ function fnv1a(str: string): number {
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
-  const backend = createEmbeddingBackend({ provider: 'local' });
-  console.log(`backend: ${backend.name}, dimensions: ${backend.dimensions}`);
+  // Try the real model:  EMBEDDING_PROVIDER=transformers node src/embedding.ts
+  const provider = process.env.EMBEDDING_PROVIDER ?? 'local';
+  const backend = provider === 'transformers'
+    ? createEmbeddingBackend({ provider: 'transformers' })
+    : createEmbeddingBackend({ provider: 'local' });
+  console.log(`backend: ${backend.name}, dimensions: ${backend.dimensions ?? '(unknown until first embed)'}`);
 
   const texts = [
     'merge and combine pdf files',

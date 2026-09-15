@@ -14,15 +14,18 @@
     "lib"
   ],
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.js --external:@deepseek-ai/*",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=lib/index.js --external:@deepseek-ai/* --external:@huggingface/*",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "3.18.2"
+    "@deepseek-ai/schemastery": "3.18.2",
+    "@huggingface/transformers": "^4.2.0"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^26.5.1",
     "esbuild": "^0.28.2",
+    "js-yaml": "^5.4.2",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

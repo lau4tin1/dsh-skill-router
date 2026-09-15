@@ -19,7 +19,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import yaml from 'js-yaml';
+import { load } from 'js-yaml';
 
 import { createEmbeddingBackend } from '../src/embedding.ts';
 import { SkillIndex, type RoutingSkill } from '../src/skillIndex.ts';
@@ -64,7 +64,7 @@ function loadSkills(): RoutingSkill[] {
       const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
       if (match === null) continue;
       // js-yaml `load` is used on trusted local files; demo only.
-      const data = yaml.load(match[1]) as { name?: string; description?: string; whenToUse?: string };
+      const data = load(match[1]) as { name?: string; description?: string; whenToUse?: string };
       if (typeof data?.name !== 'string' || typeof data?.description !== 'string') continue;
       skills.push({ name: data.name, description: data.description, whenToUse: data.whenToUse });
     } catch (error) {
@@ -78,13 +78,24 @@ async function main(): Promise<void> {
   const skills = loadSkills();
   console.log(`loaded ${skills.length} skills from .agents/skills/`);
 
-  const backend = createEmbeddingBackend({ provider: 'local' });
+  // EMBEDDING_PROVIDER=transformers node demo/e2e.ts — use the real local model.
+  const provider = process.env.EMBEDDING_PROVIDER ?? 'local';
+  const backend = provider === 'transformers'
+    ? createEmbeddingBackend({ provider: 'transformers' })
+    : createEmbeddingBackend({ provider: 'local' });
   const index = new SkillIndex(backend);
   await index.build(skills);
 
   // The plugin's real config path: YAML -> schema -> toSelectionConfig.
   const selection = toSelectionConfig(Config({}));
-  if (process.argv[2] !== undefined) selection.minScore = Number(process.argv[2]);
+  if (process.argv[2] !== undefined) {
+    selection.minScore = Number(process.argv[2]);
+  } else if (provider === 'transformers') {
+    // Real models give even unrelated texts a moderate baseline similarity,
+    // so the weak floor sits higher than the hashing vectorizer's 0.08.
+    // Calibrated on this corpus: correct matches >= 0.207, noise <= 0.094.
+    selection.minScore = 0.12;
+  }
   console.log(`selection config: rule=${selection.rule} minScore=${selection.minScore} ratioThreshold=${selection.ratioThreshold} maxSkills=${selection.maxSkills}\n`);
 
   let passed = 0;

@@ -293,7 +293,7 @@ is the natural upgrade if real sessions show it misfiring.
 | Param | Default | Meaning |
 |---|---|---|
 | `rule` | `largest-gap` | `largest-gap` \| `ratio-to-max` |
-| `minScore` | `0.08` | Weak floor on the *top* score: "is anything relevant at all?". **Calibrated for the local lexical backend** (demo corpus: matches ~0.28–0.53, noise ~0.00–0.07); re-calibrate per embedding provider. |
+| `minScore` | `0.08` | Weak floor on the *top* score: "is anything relevant at all?". Calibrated on the demo corpus per provider: `local` → `0.08`, `transformers` → `0.12`; re-calibrate when the provider/model/corpus changes. |
 | `ratioThreshold` | `0.75` | Used only when `rule: ratio-to-max`. |
 | `maxSkills` | `4` | Hard cardinality cap. |
 | `maxInjectedBytes` | `65536` | Hard cap on total injected body bytes. |
@@ -303,32 +303,26 @@ per-query scores so they can be tuned against real sessions.
 
 ---
 
-## 7. Embedding backend (open decision)
+## 7. Embedding backend (implemented: local, transformers, http)
 
 DSH has no embeddings service, so the plugin owns the embedding call behind a
-small interface:
+small interface (`EmbeddingBackend.embed(texts)`), with three implementations:
 
-```
-embedTexts(texts: string[]) -> number[][]
-```
+- **`local`** — hashing vectorizer (sparse, lexical, zero deps). Offline and
+  instant; the fallback/test stub. Shares words only — no synonyms.
+- **`transformers`** — a real local model via transformers.js
+  (`onnx-community/all-MiniLM-L6-v2-ONNX`, 384-dim dense). ~90MB first-run
+  download from huggingface.co, then fully offline. Semantic matching.
+- **`http`** — OpenAI-compatible `POST /v1/embeddings` client (OpenAI, any
+  gateway, or a local server such as Ollama/TEI/LM Studio). Config:
+  `baseURL`, `model`, `apiKeyEnv`, `dimensions`.
 
-One default implementation plus a stub:
-
-- **(Recommended default) OpenAI-compatible HTTP endpoint.** A tiny client
-  against `POST /v1/embeddings` — works with OpenAI, any compatible gateway,
-  or a local server (Ollama, LM Studio, vLLM). Config: `baseURL`, `apiKeyEnv`,
-  `model`, `dimensions`.
-- **Local model** (e.g. `fastembed` / `transformers.js`): zero network, fully
-  reproducible, but adds a heavy native/JS dependency and a first-run model
-  download. Worth it only if offline/private operation is required.
-- **Stub backend** for tests: returns fixed/random vectors so the pipeline can
-  be exercised without network.
-
-**Decision to make:** which embedding model/provider. This is *the* thing to
-lock down before code, because it determines `dimensions`, latency, cost, and
-the calibration of the weak `minScore` floor. (Note: DeepSeek's own API
-currently exposes chat models, not a public embeddings endpoint — assume an
-external/local embedder.)
+**Calibration per provider** (weak `minScore` floor measured on the 24-skill
+demo corpus): `local` → `0.08` (matches ~0.28–0.53, noise ~0.00–0.07);
+`transformers` → `0.12` (matches ≥ 0.21, noise ≤ 0.09). Re-tune whenever the
+provider, model, or corpus changes — the floor is never portable as-is.
+(DeepSeek's own API exposes chat models, not a public embeddings endpoint, so
+the `http` route is for external/local embedders.)
 
 ---
 
@@ -416,13 +410,12 @@ Keep both as config choices; the router itself is orthogonal to the tool.
   config:
     enabled: true
     embedding:
-      provider: 'openai-compatible'   # or 'local' | 'stub'
-      baseURL: '...'
-      apiKeyEnv: '...'
-      model: '...'
-      dimensions: 1024
+      provider: local                 # local | transformers | http
+      # transformers (optional): model id, default onnx-community/all-MiniLM-L6-v2-ONNX
+      # http (required): baseURL, model, apiKeyEnv
+      dimensions: 1024                # optional; local default 4096, transformers 384
     rule: largest-gap          # 'largest-gap' | 'ratio-to-max'
-    minScore: 0.08             # weak floor, calibrated for the local backend
+    minScore: 0.08             # weak floor: local 0.08, transformers ~0.12, http re-tune
     ratioThreshold: 0.75       # only used when rule: ratio-to-max
     maxSkills: 4
     maxInjectedBytes: 65536

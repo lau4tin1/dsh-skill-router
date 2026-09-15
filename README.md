@@ -46,13 +46,24 @@ node demo/e2e.ts 0.1       # experiment with the minScore floor
 
 ```yaml
 enabled: true
-embedding: { provider: local }   # or http with baseURL / model / apiKeyEnv
+embedding: { provider: local }   # local | transformers | http
 rule: largest-gap                # or ratio-to-max
-minScore: 0.08                   # weak floor, calibrated for the local backend
+minScore: 0.08                   # calibrated for `local`; use ~0.12 for `transformers`, re-tune for http
 ratioThreshold: 0.75
 maxSkills: 4
 maxInjectedBytes: 65536
 ```
+
+### Embedding backends
+
+- **`local`** — offline hashing vectorizer (sparse, lexical). Zero dependencies,
+  deterministic, instant; the test/stub default.
+- **`transformers`** — a real embedding model running locally via
+  transformers.js (`onnx-community/all-MiniLM-L6-v2-ONNX`, 384-dim dense
+  vectors). ~90MB model download on first use (huggingface.co), fully offline
+  afterwards. Semantic: synonyms and paraphrases match.
+- **`http`** — any OpenAI-compatible embeddings API (`baseURL` / `model` /
+  `apiKeyEnv`), or a local server (Ollama, TEI, LM Studio).
 
 ## Dev note
 

@@ -22,7 +22,7 @@ import z from '@deepseek-ai/schemastery';
 import type { EmbeddingConfig } from './embedding.ts';
 import type { SelectionConfig } from './selection.ts';
 
-export type EmbeddingProvider = 'local' | 'http';
+export type EmbeddingProvider = 'local' | 'http' | 'transformers';
 export type SelectionRule = 'largest-gap' | 'ratio-to-max';
 
 const DEFAULT_API_KEY_ENV = 'EMBEDDING_API_KEY';
@@ -56,7 +56,7 @@ export interface Config {
 export const Config = z.object({
   enabled: z.boolean().default(true),
   embedding: z.object({
-    provider: z.union(['local', 'http']).default('local'),
+    provider: z.union(['local', 'http', 'transformers']).default('local'),
     // No default on purpose: each backend applies its own (local -> 384,
     // http -> whatever the API returns, inferred on first call).
     dimensions: z.natural().min(1),
@@ -87,6 +87,14 @@ export function toEmbeddingConfig(config: Config): EmbeddingConfig {
     return e.dimensions === undefined
       ? { provider: 'local' }
       : { provider: 'local', dimensions: e.dimensions };
+  }
+  if (e.provider === 'transformers') {
+    // `model` is optional: the backend defaults to all-MiniLM-L6-v2-ONNX.
+    return {
+      provider: 'transformers',
+      ...(e.model !== undefined ? { model: e.model } : {}),
+      ...(e.dimensions !== undefined ? { dimensions: e.dimensions } : {}),
+    };
   }
   if (!e.baseURL || !e.model) {
     throw new Error('config: embedding.provider "http" requires embedding.baseURL and embedding.model');
