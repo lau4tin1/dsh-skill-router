@@ -8,7 +8,8 @@ skill.
 
 - **Design**: see [DESIGN.md](DESIGN.md).
 - **Status**: V1 code complete — type-checks against the real DSH `0.1.2-rc.1`
-  types, builds, and passes 12/12 end-to-end routing prompts on real skills
+  types, builds, and passes 20/23 bilingual routing prompts on real skills
+  (7/7 Chinese, 13/16 English; see `demo/e2e.ts` for the case list)
   (`node demo/e2e.ts`). **Not yet mounted into a live DSH profile** — that
   integration step is intentionally deferred.
 
@@ -47,8 +48,8 @@ node demo/e2e.ts 0.2       # experiment with the minScore floor
 ```yaml
 enabled: true
 embedding:
-  model: onnx-community/all-MiniLM-L6-v2-ONNX   # optional; any HF ONNX embedding model
-  dtype: fp32                                   # or q8 (~4x smaller download)
+  model: Xenova/bge-m3                          # optional; any HF ONNX embedding model
+  dtype: q8                                     # or fp32
 cacheDir: ~/.dsh/skill-router                   # optional; models + index live here
 rule: largest-gap                               # or ratio-to-max
 minScore: 0.12                                  # weak floor, calibrated for the default model
@@ -57,13 +58,28 @@ maxSkills: 4
 maxInjectedBytes: 65536
 ```
 
+### Languages
+
+Chinese and English both work out of the box — the default model is
+multilingual, and a Chinese prompt matches an English skill description (and
+vice versa) by meaning, cross-lingual. One DSH registry rule to respect:
+skill **names** must stay kebab-case ASCII (`pdf-tools`), but `description`,
+`whenToUse`, and the body can be Chinese. The injected instruction block is
+bilingual (中文/English).
+
 ### Embedding model
 
 One engine: a real local model via transformers.js (ONNX) — dense semantic
 vectors; synonyms and paraphrases match, word sharing is not required.
-Default `onnx-community/all-MiniLM-L6-v2-ONNX` (384-dim, ~90MB). Quality/size
-trade-off: `Xenova/bge-base-en-v1.5` (~110MB, better) or
-`Xenova/bge-large-en-v1.5` (~1.3GB, near-SOTA, ~5-8x slower).
+Default `Xenova/bge-m3` (q8, ~543MB download, 1024-dim, [CLS] pooling) —
+flagship multilingual quality for Chinese + English. Alternatives via
+`embedding.model`: `multilingual-e5-small` (fast, needs query/passage
+prefixes — handled automatically), `bge-large-en-v1.5`, `bge-large-zh-v1.5`.
+
+Scoring de-biases the vectors by subtracting the corpus mean ("centering"),
+which removes the shared direction that would otherwise make unrelated texts
+score ~0.8. Inference is pinned to a single thread so results are
+deterministic.
 
 All heavy data lives OUTSIDE the working directory: the model downloads once
 from huggingface.co into `<cacheDir>/models`, and the skill-embedding index

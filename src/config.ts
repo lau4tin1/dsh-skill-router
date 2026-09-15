@@ -27,9 +27,9 @@ export type SelectionRule = 'largest-gap' | 'ratio-to-max';
 
 /** Raw embedding settings as read from YAML. */
 export interface EmbeddingSettings {
-  /** HF ONNX model id; default onnx-community/all-MiniLM-L6-v2-ONNX. */
+  /** HF ONNX model id; default Xenova/bge-m3 (multilingual, zh+en+100 langs). */
   model?: string;
-  /** 'fp32' (default) | 'q8' (~4x smaller weights). */
+  /** 'q8' (default, ~4x smaller weights) | 'fp32'. */
   dtype?: 'fp32' | 'q8';
   /** Optional expected output dimension; inferred from the model when omitted. */
   dimensions?: number;
@@ -61,15 +61,15 @@ export const Config = z.object({
   enabled: z.boolean().default(true),
   embedding: z.object({
     model: z.string(),
-    dtype: z.union(['fp32', 'q8']).default('fp32'),
+    dtype: z.union(['fp32', 'q8']).default('q8'),
     dimensions: z.natural().min(1),
   }),
   cacheDir: z.string(),
   rule: z.union(['largest-gap', 'ratio-to-max']).default('largest-gap'),
   // Weak floor on the TOP score ("is anything relevant at all?").
-  // Calibrated for the default MiniLM model on the 24-skill demo corpus:
-  // correct matches >= 0.21, unrelated noise <= 0.09. Re-calibrate whenever
-  // the model or the corpus changes.
+  // Calibrated for the default bge-m3 model on the 24-skill demo corpus
+  // (centered cosine): correct matches >= 0.27, unrelated noise <= 0.12.
+  // Re-calibrate whenever the model or the corpus changes.
   minScore: z.number().default(0.12),
   ratioThreshold: z.number().default(0.75),
   maxSkills: z.natural().min(1).default(4),

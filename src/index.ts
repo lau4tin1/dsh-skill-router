@@ -29,9 +29,7 @@ import { isModelInvocable } from '@deepseek-ai/dsh-skill';
 
 import { createEmbeddingBackend } from './embedding.ts';
 import { SkillIndex } from './skillIndex.ts';
-import { cosine } from './similarity.ts';
 import { selectSkills } from './selection.ts';
-import type { ScoredSkill } from './selection.ts';
 import { Config, resolveCacheDir, toEmbeddingConfig, toSelectionConfig } from './config.ts';
 import { renderSelection } from './render.ts';
 import type { SelectedSkill } from './render.ts';
@@ -105,9 +103,9 @@ export function apply(ctx: Context, config: Config): void {
     if (task === undefined || index.size === 0) return decision;
 
     // 3. Embed the task, score every skill, keep the standouts.
-    const [query] = await backend.embed([task]);
+    const [query] = await backend.embed([task], { query: true });
     signal.throwIfAborted();
-    const result = selectSkills(rank(index, query), selection);
+    const result = selectSkills(index.score(query), selection);
     if (result.selected.length === 0) return decision;
 
     // 4. Skip skills already injected this session (in-memory dedup).
@@ -155,14 +153,4 @@ function userTaskText(messages: readonly UserMessage[]): string | undefined {
   }
   const text = parts.join('\n').trim();
   return text.length > 0 ? text : undefined;
-}
-
-/** Score every indexed skill against the query vector. */
-function rank(index: SkillIndex, query: number[]): ScoredSkill[] {
-  const scored: ScoredSkill[] = [];
-  for (const name of index.names()) {
-    const entry = index.get(name);
-    if (entry !== undefined) scored.push({ name, score: cosine(query, entry.vector) });
-  }
-  return scored;
 }

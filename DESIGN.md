@@ -306,23 +306,38 @@ per-query scores so they can be tuned against real sessions.
 ## 7. Embedding backend (implemented: one real local model)
 
 DSH has no embeddings service, so the plugin owns the embedding call behind a
-small interface (`EmbeddingBackend.embed(texts)`), with one implementation:
+small interface (`EmbeddingBackend.embed(texts, { query? })`), with one
+implementation:
 
 - **transformers.js (ONNX)** — a real semantic model running in-process.
-  Default `onnx-community/all-MiniLM-L6-v2-ONNX` (384-dim dense vectors).
-  The model downloads from huggingface.co on first use (~90MB fp32; `q8` is
-  ~4x smaller with tiny quality loss) into `<cacheDir>/models` under
-  `~/.dsh` — outside the working directory — and then runs fully offline.
-  Bigger models are a config change (`embedding.model`): `bge-base-en-v1.5`
-  (~110MB) or `bge-large-en-v1.5` (~1.3GB, near-SOTA retrieval).
+  Default `Xenova/bge-m3` (q8, ~543MB, 1024-dim dense vectors, [CLS]
+  pooling) — flagship multilingual quality for Chinese + English; e5-family
+  models get automatic `query:`/`passage:` prefixes, and pooling is chosen
+  per model family (cls for bge, mean otherwise).
+  The model downloads from huggingface.co on first use into
+  `<cacheDir>/models` under `~/.dsh` — outside the working directory — and
+  then runs fully offline. Inference is single-threaded for determinism.
+  Alternatives via `embedding.model`: `multilingual-e5-small` (fast),
+  `bge-large-en-v1.5` (~1.3GB), `bge-large-zh-v1.5`.
+
+**Scoring de-bias:** all scores are computed as centered cosine (corpus mean
+subtracted on both sides). Embedding models concentrate much of their energy
+in one shared direction, which inflates raw cosine (~0.8 for unrelated
+texts); centering removes it, dropping unrelated pairs toward 0 and keeping
+true matches clearly positive.
+
+**Language support:** the default model is multilingual, so Chinese prompts
+route to English skills and vice versa. Skill NAMES must stay kebab-case
+ASCII (a registry validation rule), but `description`, `whenToUse`, and the
+body can be Chinese. The injected block is bilingual (中文/English).
 
 The interface stays so the index/selection logic is decoupled from the model
 runtime (and a different engine could be added without touching the pipeline).
 
 **Calibration** (weak `minScore` floor, measured on the 24-skill demo corpus
-with the default model): `0.12` — correct matches ≥ 0.21, unrelated noise
-≤ 0.09. Re-tune whenever the model or corpus changes; the floor is never
-portable as-is.
+with the default model, centered cosine): `0.12` — correct matches ≥ 0.27,
+unrelated noise ≤ 0.12. Re-tune whenever the model or corpus changes; the
+floor is never portable as-is.
 
 ---
 

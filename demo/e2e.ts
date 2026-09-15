@@ -23,7 +23,6 @@ import { load } from 'js-yaml';
 
 import { createEmbeddingBackend } from '../src/embedding.ts';
 import { SkillIndex, type RoutingSkill } from '../src/skillIndex.ts';
-import { cosine } from '../src/similarity.ts';
 import { selectSkills } from '../src/selection.ts';
 import { Config, toSelectionConfig } from '../src/config.ts';
 
@@ -46,6 +45,14 @@ const CASES: { prompt: string; expected: string[] }[] = [
   { prompt: 'how do I use the openai api', expected: ['openai-docs'] },
   { prompt: 'make a landing page with animations for my startup', expected: ['frontend-dev'] },
   { prompt: 'hello, how are you today?', expected: [] },
+  // Chinese prompts against the English skill catalog: cross-lingual routing.
+  { prompt: '把几个pdf文件合并成一个文档', expected: ['pdf'] },
+  { prompt: '用这个csv数据创建一个电子表格', expected: ['xlsx'] },
+  { prompt: '帮我写一份项目进度报告发给团队', expected: ['internal-comms'] },
+  { prompt: '做一个演示文稿展示季度总结', expected: ['pptx'] },
+  { prompt: '部署我的应用到生产环境', expected: ['deploy-to-vercel'] },
+  { prompt: '我的应用有个bug，帮我修复一下', expected: ['systematic-debugging'] },
+  { prompt: '你好，今天天气怎么样？', expected: [] },
 ];
 
 /** Read every <skill>/SKILL.md and extract its routing surface (frontmatter). */
@@ -79,7 +86,13 @@ async function main(): Promise<void> {
   console.log(`loaded ${skills.length} skills from .agents/skills/`);
 
   // The real semantic model (first run downloads it to ~/.dsh/skill-router/models).
-  const backend = createEmbeddingBackend();
+  // MODEL=<hf-id> [DTYPE=fp32|q8] node demo/e2e.ts — A/B test models without code edits.
+  const backend = process.env.MODEL === undefined
+    ? createEmbeddingBackend()
+    : createEmbeddingBackend({
+        model: process.env.MODEL,
+        ...(process.env.DTYPE === undefined ? {} : { dtype: process.env.DTYPE as 'fp32' | 'q8' }),
+      });
   const index = new SkillIndex(backend);
   await index.build(skills);
 
@@ -93,13 +106,13 @@ async function main(): Promise<void> {
 
   let passed = 0;
   for (const { prompt, expected } of CASES) {
-    const [query] = await backend.embed([prompt]);
-    const scored = index.names()
-      .map((name) => {
-        const entry = index.get(name);
-        return { name, score: entry === undefined ? 0 : cosine(query, entry.vector) };
-      })
-      .sort((a, b) => b.score - a.score);
+    const [query] = await backend.embed([prompt], { query: true });
+    // index.score() applies corpus centering, exactly like the plugin.
+    const scored = index.score(query).sort((a, b) => b.score - a.score);
+    if (process.env.DEBUG_SCORES === '1') {
+      const top = scored.slice(0, 4).map((s) => `${s.name}:${s.score.toFixed(3)}`).join(' ');
+      console.log(`DEBUG "${prompt}" -> ${top}`);
+    }
     const result = selectSkills(scored, selection);
     const selected = result.selected.map((s) => s.name);
 

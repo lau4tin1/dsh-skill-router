@@ -24,6 +24,8 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { type Embedding, type EmbeddingBackend } from './embedding.ts';
+import { cosine, meanVector, subtract } from './similarity.ts';
+import type { ScoredSkill } from './selection.ts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -226,6 +228,35 @@ export class SkillIndex {
       });
     }
     return true;
+  }
+
+  /**
+   * The corpus center: component-wise mean of every stored vector.
+   * Used to de-bias anisotropic embeddings before scoring (see score()).
+   */
+  centerVector(): number[] | undefined {
+    return meanVector([...this.entries.values()].map((entry) => entry.vector));
+  }
+
+  /**
+   * Score every stored skill against a query vector.
+   *
+   * Both sides are CENTERED first (corpus mean subtracted): some embedding
+   * models (the e5 family especially) concentrate most of their energy in one
+   * shared direction, which inflates raw cosine so even unrelated texts score
+   * ~0.8. Centering removes that common direction and exposes the
+   * discriminative part — unrelated drops toward 0 and true matches stay
+   * clearly positive.
+   */
+  score(query: number[]): ScoredSkill[] {
+    const center = this.centerVector();
+    const q = center === undefined ? query : subtract(query, center);
+    const scored: ScoredSkill[] = [];
+    for (const entry of this.entries.values()) {
+      const v = center === undefined ? entry.vector : subtract(entry.vector, center);
+      scored.push({ name: entry.name, score: cosine(q, v) });
+    }
+    return scored;
   }
 
   /** Embed a batch of skills into IndexEntry objects (order preserved). */

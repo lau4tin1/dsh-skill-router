@@ -1,10 +1,12 @@
 /**
  * src/embedding.ts — the embedding backend: one REAL local model.
  *
- * A single implementation: a semantic embedding model running in-process via
- * transformers.js (ONNX). It produces DENSE vectors (384 dims by default,
- * every dimension non-zero) where MEANING matters — synonyms, paraphrases,
- * and word order all participate; shared words are NOT required for a match.
+ * A single implementation: a multilingual semantic embedding model running
+ * in-process via transformers.js (ONNX). It produces DENSE vectors (384 dims
+ * by default, every dimension non-zero) where MEANING matters — synonyms,
+ * paraphrases, word order, and LANGUAGE all participate: a Chinese prompt
+ * matches an English skill description when they mean the same thing.
+ * Shared words are NOT required for a match.
  *
  * The model is downloaded from huggingface.co on FIRST use and cached under
  * ~/.dsh/skill-router/models ($DSH_HOME when set) — outside the working
@@ -34,28 +36,46 @@ export interface EmbeddingBackend {
   readonly modelId: string;
   /** Vector length; known from config or after the first embedding. */
   readonly dimensions: number | undefined;
-  /** Embed a batch of texts. Returns one vector per text, in order. */
-  embed(texts: readonly string[]): Promise<Embedding[]>;
+  /**
+   * Embed a batch of texts. Returns one vector per text, in order.
+   * `options.query` marks the text as a user query rather than a document
+   * (skill routing text); some models (the e5 family) want a different
+   * prefix for each and the backend applies it automatically.
+   */
+  embed(texts: readonly string[], options?: { query?: boolean }): Promise<Embedding[]>;
 }
 
 export interface EmbeddingConfig {
   /**
    * Hugging Face ONNX model id.
-   * Default: onnx-community/all-MiniLM-L6-v2-ONNX (22M params, 384 dims —
-   * fast and good for short routing text).
-   * More quality: Xenova/bge-base-en-v1.5 (~110MB) or
-   * Xenova/bge-large-en-v1.5 (~1.3GB, near-SOTA retrieval, ~5-8x slower).
+   * Default: Xenova/bge-m3 — the flagship multilingual model (Chinese,
+   * English, and ~100 more), 1024-dim dense vectors, [CLS] pooling.
+   * Alternatives: Xenova/multilingual-e5-small (fast), intfloat
+   * multilingual-e5-large, Xenova/bge-large-zh-v1.5, BAAI/bge-large-en-v1.5.
    */
   model?: string;
-  /** Weight precision: 'fp32' (default) or 'q8' (~4x smaller download, tiny quality loss). */
+  /** Weight precision: 'q8' (default, ~4x smaller download) or 'fp32'. */
   dtype?: 'fp32' | 'q8';
   /** Optional expected output dimension; validated after the first embedding. */
   dimensions?: number;
   /** Directory for the downloaded model. Default: $DSH_HOME/skill-router/models. */
   cacheDir?: string;
+  /**
+   * Prefixes for asymmetric models (the e5 family). Defaults to
+   * 'query: '/'passage: ' when the model id contains 'e5', otherwise none.
+   * Only set these if you know the model expects them.
+   */
+  queryPrefix?: string;
+  documentPrefix?: string;
+  /**
+   * Pooling strategy. Defaults automatically: 'cls' for BGE-family models
+   * (they use the [CLS] token), 'mean' for everything else (e5, MiniLM).
+   * Only set this if you know the model expects a specific pooling.
+   */
+  pooling?: 'mean' | 'cls';
 }
 
-const DEFAULT_MODEL = 'onnx-community/all-MiniLM-L6-v2-ONNX';
+const DEFAULT_MODEL = 'Xenova/bge-m3';
 
 /** Default model cache: $DSH_HOME (or ~/.dsh) + /skill-router/models. */
 export function defaultModelCacheDir(): string {
@@ -73,30 +93,51 @@ export class TransformersEmbeddingBackend implements EmbeddingBackend {
   readonly modelId: string;
   private readonly dtype: 'fp32' | 'q8';
   private readonly cacheDir: string;
+  private readonly queryPrefix: string;
+  private readonly documentPrefix: string;
+  private readonly pooling: 'mean' | 'cls';
   private _dimensions: number | undefined;
   private extractorPromise: Promise<FeatureExtractionPipeline> | undefined;
 
   constructor(config: EmbeddingConfig = {}) {
     this.modelId = config.model ?? DEFAULT_MODEL;
-    this.dtype = config.dtype ?? 'fp32';
+    // q8 default: bge-m3's fp32 weights are a 2.1GB external-data pair;
+    // the quantized file is one 543MB download with negligible quality loss.
+    this.dtype = config.dtype ?? 'q8';
     this.cacheDir = config.cacheDir ?? defaultModelCacheDir();
     this._dimensions = config.dimensions;
+    // The e5 family expects asymmetric prefixes; everything else gets none.
+    const isE5 = this.modelId.toLowerCase().includes('e5');
+    this.queryPrefix = config.queryPrefix ?? (isE5 ? 'query: ' : '');
+    this.documentPrefix = config.documentPrefix ?? (isE5 ? 'passage: ' : '');
+    // BGE models use the [CLS] token as the sentence vector; others use mean.
+    const isBge = this.modelId.toLowerCase().includes('bge');
+    this.pooling = config.pooling ?? (isBge ? 'cls' : 'mean');
   }
 
   get dimensions(): number | undefined {
     return this._dimensions;
   }
 
-  async embed(texts: readonly string[]): Promise<Embedding[]> {
+  async embed(texts: readonly string[], options?: { query?: boolean }): Promise<Embedding[]> {
+    const prefix = options?.query === true ? this.queryPrefix : this.documentPrefix;
     const extractor = await this.getExtractor();
+
+    // One batched call for many texts (the skill index): the extractor pads
+    // internally, and a single forward pass avoids any per-call state issues.
+    // A single text stays a single-element call.
+    const input = texts.length === 1
+      ? `${prefix}${texts[0]}`
+      : texts.map((text) => `${prefix}${text}`);
+    const tensor = await extractor(input, { pooling: this.pooling, normalize: true });
+
+    const dim = tensor.dims[tensor.dims.length - 1];
+    this.assertDimension(dim);
+    const data = tensor.data as Float32Array;
+
     const vectors: Embedding[] = [];
-    for (const text of texts) {
-      // Sequential: the index embeds tens of short routing texts, and
-      // batching only pads to the longest one without saving compute.
-      const tensor = await extractor(text, { pooling: 'mean', normalize: true });
-      const vector = Array.from(tensor.data as Float32Array);
-      this.assertDimension(vector.length);
-      vectors.push(vector);
+    for (let i = 0; i < texts.length; i++) {
+      vectors.push(Array.from(data.subarray(i * dim, (i + 1) * dim)));
     }
     return vectors;
   }
@@ -111,6 +152,12 @@ export class TransformersEmbeddingBackend implements EmbeddingBackend {
         env.allowRemoteModels = true;
         return pipeline('feature-extraction', this.modelId, {
           dtype: this.dtype,
+          // Single-threaded inference: the e5 family's vectors concentrate
+          // most energy in one shared direction, so the discriminative part
+          // lives in tiny residual differences that multi-threaded reduction
+          // order can shuffle run-to-run. Pinning one thread makes results
+          // deterministic; the workload (tens of short texts) is tiny.
+          session_options: { intraOpNumThreads: 1 },
         }) as Promise<FeatureExtractionPipeline>;
       })();
     }

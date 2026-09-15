@@ -55,6 +55,23 @@ export function cosine(a: readonly number[], b: readonly number[]): number {
   return denominator === 0 ? 0 : dot / denominator;
 }
 
+/** Component-wise mean of several same-length vectors (undefined for none). */
+export function meanVector(vectors: readonly (readonly number[])[]): number[] | undefined {
+  if (vectors.length === 0) return undefined;
+  const dim = vectors[0].length;
+  const mean = new Array<number>(dim).fill(0);
+  for (const vector of vectors) {
+    for (let i = 0; i < dim; i++) mean[i] += vector[i];
+  }
+  for (let i = 0; i < dim; i++) mean[i] /= vectors.length;
+  return mean;
+}
+
+/** Component-wise subtraction: a - b (new array). */
+export function subtract(a: readonly number[], b: readonly number[]): number[] {
+  return a.map((value, i) => value - b[i]);
+}
+
 // ---------------------------------------------------------------------------
 // Demo — runs only when executed directly:  node src/similarity.ts
 // ---------------------------------------------------------------------------

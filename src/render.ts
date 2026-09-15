@@ -55,6 +55,7 @@ export function renderSelection(skills: readonly SelectedSkill[]): string {
 
   return [
     '<system-reminder>',
+    '以下技能已根据当前任务自动选中，请遵循其中的说明。',
     'The following skills were automatically selected for this task. Follow their instructions.',
     '',
     '<selected_skills>',
