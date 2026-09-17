@@ -50,6 +50,12 @@ export interface Config {
   ratioThreshold: number;
   maxSkills: number;
   maxInjectedBytes: number;
+  /**
+   * Optional z-score gate. When set, selection switches to scale-invariant
+   * mode: keep skills whose score is >= zThreshold std-devs above the current
+   * query's mean AND >= minScore. Unset = classic gap/ratio rule.
+   */
+  zThreshold?: number;
 }
 
 /**
@@ -67,16 +73,27 @@ export const Config = z.object({
   cacheDir: z.string(),
   rule: z.union(['largest-gap', 'ratio-to-max']).default('largest-gap'),
   // Confidence floor on the TOP score ("is anything relevant at all?").
-  // Calibrated for the default bge-m3 model on the 24-skill demo corpus
-  // (centered cosine): confident matches >= 0.18, diffuse noise <= 0.13.
-  // We bias PRECISION over RECALL on purpose: injecting a wrong skill body is
-  // more harmful than missing a weak match. Known trade-off: the weakest real
-  // case (zh "项目进度报告", ~0.126) sits just below this floor and will not
-  // inject. Re-calibrate whenever the model or the corpus changes.
-  minScore: z.number().default(0.14),
+  // TWO modes:
+  //   - classic (zThreshold unset): the only gate before the gap/ratio cut.
+  //     Calibrated for bge-m3 centered cosine on the 24-skill corpus:
+  //     confident matches >= 0.18, diffuse noise <= 0.13; 0.2 sits above the
+  //     borderline band (measured false positives at 0.1495/0.1681).
+  //   - z-score mode (zThreshold set): a WEAK absolute AND-floor — the z-gate
+  //     does the discriminating, this only rejects near-garbage scores.
+  //     Recommended 0.05 (the deployed cordis.patch.yml uses this).
+  // Known trade-off in both modes: weak true matches like zh "项目进度报告"
+  // (~0.10-0.13 raw, z ~1.4) do not inject. Re-calibrate when the model or
+  // the corpus changes.
+  minScore: z.number().default(0.2),
   ratioThreshold: z.number().default(0.75),
   maxSkills: z.natural().min(1).default(4),
   maxInjectedBytes: z.natural().min(1).default(65536),
+  // Optional z-score gate. When set, selection switches to scale-invariant
+  // mode: keep skills whose score is >= zThreshold std-devs above the current
+  // query's mean AND >= minScore (weak floor). Measured on the 24-skill
+  // corpus: false positives z ~1.8-2.3, true positives z ~2.9-3.4 -> 2.5
+  // splits cleanly. Unset = classic gap/ratio rule.
+  zThreshold: z.number(),
 });
 
 /** Map normalized Config -> the EmbeddingConfig the backend factory expects. */
@@ -103,6 +120,7 @@ export function toSelectionConfig(config: Config): SelectionConfig {
     minScore: config.minScore,
     ratioThreshold: config.ratioThreshold,
     maxSkills: config.maxSkills,
+    zThreshold: config.zThreshold,
   };
 }
 

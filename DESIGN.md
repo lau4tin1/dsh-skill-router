@@ -271,6 +271,31 @@ A one-parameter version of the same idea: keep `sim_i >= ratioThreshold * max`
 (e.g. `0.75`). Easier to reason about, slightly less adaptive than the largest
 gap; a good fallback when score lists are short or noisy.
 
+### 6.4 z-score gate (scale-invariant, deployed default)
+
+The gap rules are scale-sensitive in one respect: the absolute `minScore`
+floor is calibrated for a specific model+corpus and must be re-tuned when
+either changes. The z-score gate replaces that absolute decision with a
+relative one computed per query:
+
+```
+mu = mean(s_1..s_n),  sigma = stddev(s_1..s_n)      (population)
+keep skill i  iff   z_i = (s_i - mu) / sigma >= zThreshold
+                   AND s_i >= minScore              (weak absolute floor)
+```
+
+z is invariant under `s -> a*s + b`, so `zThreshold` survives model/corpus
+score-scale drift — the property the absolute floor lacks. `minScore` keeps
+its "is anything relevant at all?" role but drops to a near-garbage guard
+(0.05 in the deployed patch); `maxSkills` still caps the result.
+
+Measured on the 24-skill corpus (centered bge-m3 cosine): false positives
+cluster at z 1.8–2.3, true positives at z 2.9–3.4, so `zThreshold: 2.5`
+splits cleanly. Edge cases: `sigma = 0` (all scores equal) → no winner,
+select nothing; a query with a strong z-hit but a weak absolute score still
+needs `s >= minScore`, so z never selects from pure noise.
+
+
 ### 6.4 The clustering view (what you're reaching for)
 
 "Standouts" = the top connected component of a 1-D score distribution. The
@@ -293,7 +318,8 @@ is the natural upgrade if real sessions show it misfiring.
 | Param | Default | Meaning |
 |---|---|---|
 | `rule` | `largest-gap` | `largest-gap` \| `ratio-to-max` |
-| `minScore` | `0.14` | Confidence floor on the *top* score: "is anything relevant at all?". Calibrated for the default bge-m3 model (centered cosine): confident matches ≥ 0.18, diffuse noise ≤ 0.13. Precision is biased over recall — a wrong skill body is worse than a missed weak match; the weakest real case (zh 进度报告 ~0.126) sits just under the floor. |
+| `minScore` | `0.2` | Classic mode: confidence floor on the *top* score (confident matches ≥ 0.18, noise ≤ 0.13; measured false positives at 0.1495/0.1681). z-score mode: weak absolute AND-floor (deployed patch uses `0.05`). |
+| `zThreshold` | unset | Optional z-score gate. When set, selection keeps skills with `z >= zThreshold` AND `score >= minScore`, bypassing the gap/ratio rule. Scale-invariant; `2.5` splits the measured corpus cleanly (FP z 1.8–2.3, TP z 2.9–3.4). |
 | `ratioThreshold` | `0.75` | Used only when `rule: ratio-to-max`. |
 | `maxSkills` | `4` | Hard cardinality cap. |
 | `maxInjectedBytes` | `65536` | Hard cap on total injected body bytes. |
@@ -334,11 +360,13 @@ body can be Chinese. The injected block is bilingual (中文/English).
 The interface stays so the index/selection logic is decoupled from the model
 runtime (and a different engine could be added without touching the pipeline).
 
-**Calibration** (confidence `minScore` floor, measured on the 24-skill demo
-corpus with the default model, centered cosine): `0.14` — confident matches
-≥ 0.18, diffuse noise ≤ 0.13. Precision is biased over recall (a wrong skill
-body is worse than a missed weak match). Re-tune whenever the model or corpus
-changes; the floor is never portable as-is.
+**Calibration** (measured on the 24-skill demo corpus with the default model,
+centered cosine): classic-mode `minScore` floor `0.2` — confident matches
+≥ 0.18, diffuse noise ≤ 0.13. z-score mode (deployed): `zThreshold 2.5` +
+weak floor `0.05` — false positives cluster at z 1.8–2.3, true positives at
+z 2.9–3.4. Precision is biased over recall (a wrong skill body is worse than
+a missed weak match). Re-tune whenever the model or corpus changes; absolute
+floors are never portable as-is (the z-gate is).
 
 ---
 
@@ -434,8 +462,9 @@ Keep both as config choices; the router itself is orthogonal to the tool.
       dtype: q8                                   # or fp32
       dimensions: 1024                            # optional; validated
     cacheDir: ~/.dsh/skill-router     # optional; model weights + index file live here
-    rule: largest-gap          # 'largest-gap' | 'ratio-to-max'
-    minScore: 0.14             # confidence floor (precision > recall)
+    rule: largest-gap          # 'largest-gap' | 'ratio-to-max' (bypassed in z-score mode)
+    minScore: 0.05             # z-score mode: weak absolute AND-floor
+    zThreshold: 2.5            # z-score gate; unset = classic gap/ratio mode (then minScore ~0.2)
     ratioThreshold: 0.75       # only used when rule: ratio-to-max
     maxSkills: 4
     maxInjectedBytes: 65536

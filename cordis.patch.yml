@@ -15,5 +15,10 @@
         embedding:
           model: Xenova/bge-m3
           dtype: q8
-        minScore: 0.14
+        # z-score gate (scale-invariant): keep skills whose score is >= 2.5
+        # std-devs above the current query's mean AND >= the weak 0.05 floor.
+        # Measured on the 24-skill corpus: false positives z 1.8-2.3, true
+        # positives z 2.9-3.4 -> 2.5 splits cleanly.
+        minScore: 0.05
+        zThreshold: 2.5
         maxSkills: 4

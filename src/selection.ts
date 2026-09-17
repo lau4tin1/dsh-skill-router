@@ -59,6 +59,16 @@ export interface SelectionConfig {
    * context window from a burst of near-duplicate matches.
    */
   maxSkills: number;
+  /**
+   * Optional z-score gate (scale-invariant selection). When set, the
+   * gap/ratio rule is BYPASSED: a skill is kept when its score is at least
+   * `zThreshold` standard deviations above THIS query's mean score AND at
+   * least the absolute `minScore` floor. The z-gate is immune to model/corpus
+   * score-scale drift (z is invariant under s -> a*s + b), so one threshold
+   * works across backends; the absolute floor still answers "is anything
+   * truly relevant at all?".
+   */
+  zThreshold?: number;
 }
 
 /** Everything the caller needs: the decision plus numbers for logging/tuning. */
@@ -73,6 +83,10 @@ export interface SelectionResult {
   cutIndex: number;
   /** True when nothing was relevant (an empty selection is the correct answer). */
   empty: boolean;
+  /** Mean of all input scores (for logging/tuning). */
+  mean: number;
+  /** Population std-dev of all input scores (0 = all scores equal). */
+  stdDev: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,9 +118,10 @@ export function selectSkills(
 
   // Question 1: is anything relevant at all?
   if (sorted.length === 0) {
-    return { selected: [], max: 0, gaps: [], cutIndex: 0, empty: true };
+    return { selected: [], max: 0, gaps: [], cutIndex: 0, empty: true, mean: 0, stdDev: 0 };
   }
   const max = sorted[0].score;
+  const { mean, stdDev } = scoreStats(sorted);
   if (max < config.minScore) {
     // Best-of-a-bad-bunch: even the top score is too weak, so select nothing.
     // A pure relative rule would wrongly keep the top cluster here.
@@ -116,6 +131,40 @@ export function selectSkills(
       gaps: gapsOf(sorted),
       cutIndex: 0,
       empty: true,
+      mean,
+      stdDev,
+    };
+  }
+
+  // z-score mode (config.zThreshold set): bypass the gap/ratio rule entirely.
+  // Keep every skill that stands out >= zThreshold std-devs above THIS query's
+  // mean AND clears the absolute floor. If every score is identical (stdDev
+  // 0), no winner can stand out, so nothing is selected.
+  const zThreshold = config.zThreshold;
+  if (zThreshold !== undefined) {
+    if (stdDev === 0) {
+      return {
+        selected: [],
+        max,
+        gaps: gapsOf(sorted),
+        cutIndex: 0,
+        empty: true,
+        mean,
+        stdDev,
+      };
+    }
+    const passing = sorted.filter(
+      (s) => s.score >= config.minScore && (s.score - mean) / stdDev >= zThreshold,
+    );
+    const keep = Math.min(passing.length, config.maxSkills);
+    return {
+      selected: passing.slice(0, keep),
+      max,
+      gaps: gapsOf(sorted),
+      cutIndex: passing.length,
+      empty: passing.length === 0,
+      mean,
+      stdDev,
     };
   }
 
@@ -131,7 +180,20 @@ export function selectSkills(
     gaps: gapsOf(sorted),
     cutIndex,
     empty: false,
+    mean,
+    stdDev,
   };
+}
+
+/** Population mean and std-dev of the scores (per-query statistics). */
+function scoreStats(sorted: readonly ScoredSkill[]): { mean: number; stdDev: number } {
+  let sum = 0;
+  for (const s of sorted) sum += s.score;
+  const mean = sum / sorted.length;
+  let variance = 0;
+  for (const s of sorted) variance += (s.score - mean) * (s.score - mean);
+  variance /= sorted.length;
+  return { mean, stdDev: Math.sqrt(variance) };
 }
 
 /** Adjacent gaps between sorted scores: gaps[i] = score[i] - score[i+1]. */
