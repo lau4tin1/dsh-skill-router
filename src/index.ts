@@ -76,69 +76,77 @@ export function apply(ctx: Context, config: Config): void {
     if (decision.kind === 'reject') return decision;
     signal.throwIfAborted();
 
-    const lookup = { cwd: agent.session.header.cwd, scope: agent, signal };
+    try {
+      const lookup = { cwd: agent.session.header.cwd, scope: agent, signal };
 
-    // 1. Keep the index current. The initial build happens here, lazily, on the
-    //    first step (apply() has no agent/cwd yet, so it cannot snapshot there).
-    if (dirty || index.size === 0) {
-      if (!indexRestored) {
-        indexRestored = true;
-        await index.loadFromDisk(indexFile);
+      // 1. Keep the index current. The initial build happens here, lazily, on the
+      //    first step (apply() has no agent/cwd yet, so it cannot snapshot there).
+      if (dirty || index.size === 0) {
+        if (!indexRestored) {
+          indexRestored = true;
+          await index.loadFromDisk(indexFile);
+        }
+        const snapshot = await ctx.skills.snapshot(lookup);
+        signal.throwIfAborted();
+        if (snapshot.complete) {
+          await index.sync(snapshot.skills.filter(isModelInvocable));
+          dirty = false;
+          // Persistence is best-effort: a failed save must never fail the turn.
+          index.saveToDisk(indexFile).catch((error) => {
+            console.warn(`skill-router: could not persist index to ${indexFile}:`, error);
+          });
+        }
+        // Incomplete snapshot: keep last-good index, leave dirty set, retry later.
       }
-      const snapshot = await ctx.skills.snapshot(lookup);
+
+      // 2. The current task is the text of the user-authored messages in this step.
+      const task = userTaskText(messages);
+      if (task === undefined || index.size === 0) return decision;
+
+      // 3. Embed the task, score every skill, keep the standouts.
+      const [query] = await backend.embed([task], { query: true });
       signal.throwIfAborted();
-      if (snapshot.complete) {
-        await index.sync(snapshot.skills.filter(isModelInvocable));
-        dirty = false;
-        // Persistence is best-effort: a failed save must never fail the turn.
-        index.saveToDisk(indexFile).catch((error) => {
-          console.warn(`skill-router: could not persist index to ${indexFile}:`, error);
-        });
+      const result = selectSkills(index.score(query), selection);
+      if (result.selected.length === 0) return decision;
+
+      // 4. Skip skills already injected this session (in-memory dedup).
+      const injected = injectedByAgent.get(agent) ?? new Set<string>();
+      const fresh = result.selected.filter((scored) => !injected.has(scored.name));
+      if (fresh.length === 0) return decision;
+
+      // 5. Load full bodies for the fresh skills only.
+      const loaded: SelectedSkill[] = [];
+      for (const scored of fresh) {
+        const definition = await ctx.skills.get(scored.name, lookup);
+        signal.throwIfAborted();
+        if (definition !== undefined) {
+          loaded.push({
+            name: definition.name,
+            provider: definition.provider,
+            content: definition.content,
+            resourceBase: definition.resourceBase,
+          });
+        }
       }
-      // Incomplete snapshot: keep last-good index, leave dirty set, retry later.
+      if (loaded.length === 0) return decision;
+
+      // 6. Remember what we injected, render, and append the injection.
+      for (const skill of loaded) injected.add(skill.name);
+      injectedByAgent.set(agent, injected);
+
+      const message = createUserMessage({
+        content: [{ type: 'text', text: renderSelection(loaded) }],
+        source: { kind: 'plugin', plugin: name, form: 'instructions' },
+      });
+
+      return { ...decision, messages: [...decision.messages, message] };
+    } catch (error) {
+      // Fail open: routing failures must never block the user's turn.
+      // Aborts are the exception — caller cancellation should still propagate.
+      if (signal.aborted) throw error;
+      console.warn('skill-router: routing failed; skipping injection for this step:', error);
+      return decision;
     }
-
-    // 2. The current task is the text of the user-authored messages in this step.
-    const task = userTaskText(messages);
-    if (task === undefined || index.size === 0) return decision;
-
-    // 3. Embed the task, score every skill, keep the standouts.
-    const [query] = await backend.embed([task], { query: true });
-    signal.throwIfAborted();
-    const result = selectSkills(index.score(query), selection);
-    if (result.selected.length === 0) return decision;
-
-    // 4. Skip skills already injected this session (in-memory dedup).
-    const injected = injectedByAgent.get(agent) ?? new Set<string>();
-    const fresh = result.selected.filter((scored) => !injected.has(scored.name));
-    if (fresh.length === 0) return decision;
-
-    // 5. Load full bodies for the fresh skills only.
-    const loaded: SelectedSkill[] = [];
-    for (const scored of fresh) {
-      const definition = await ctx.skills.get(scored.name, lookup);
-      signal.throwIfAborted();
-      if (definition !== undefined) {
-        loaded.push({
-          name: definition.name,
-          provider: definition.provider,
-          content: definition.content,
-          resourceBase: definition.resourceBase,
-        });
-      }
-    }
-    if (loaded.length === 0) return decision;
-
-    // 6. Remember what we injected, render, and append the injection.
-    for (const skill of loaded) injected.add(skill.name);
-    injectedByAgent.set(agent, injected);
-
-    const message = createUserMessage({
-      content: [{ type: 'text', text: renderSelection(loaded) }],
-      source: { kind: 'plugin', plugin: name, form: 'instructions' },
-    });
-
-    return { ...decision, messages: [...decision.messages, message] };
   });
 }
 
