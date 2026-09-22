@@ -249,12 +249,23 @@ export class SkillIndex {
    * clearly positive.
    */
   score(query: number[]): ScoredSkill[] {
-    const center = this.centerVector();
+    // A one-skill corpus has no meaningful center: its mean is the only vector
+    // itself, so subtracting it would turn the sole comparison into a zero
+    // vector and cosine would always be 0.
+    const center = this.entries.size < 2 ? undefined : this.centerVector();
     const q = center === undefined ? query : subtract(query, center);
     const scored: ScoredSkill[] = [];
     for (const entry of this.entries.values()) {
-      const v = center === undefined ? entry.vector : subtract(entry.vector, center);
-      scored.push({ name: entry.name, score: cosine(q, v) });
+      let v = center === undefined ? entry.vector : subtract(entry.vector, center);
+      // Guard against a degenerate centered vector: if the corpus is all
+      // identical, centering collapses every entry to zero. In that case fall
+      // back to the raw vector pair so cosine still produces a real score.
+      if (center !== undefined && isZeroVector(v)) {
+        v = entry.vector;
+        scored.push({ name: entry.name, score: cosine(query, v) });
+      } else {
+        scored.push({ name: entry.name, score: cosine(q, v) });
+      }
     }
     return scored;
   }
@@ -280,6 +291,14 @@ export class SkillIndex {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** True when every component of the vector is exactly zero. */
+function isZeroVector(vector: readonly number[]): boolean {
+  for (const value of vector) {
+    if (value !== 0) return false;
+  }
+  return true;
+}
 
 /** The exact text we embed, and the source of the change-detection digest. */
 export function routingText(skill: RoutingSkill): string {
