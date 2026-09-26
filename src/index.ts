@@ -55,8 +55,6 @@ export function apply(ctx: Context, config: Config): void {
   // Restore the persisted index exactly once (first pre-step), so unchanged
   // skills are not re-embedded after a restart.
   let indexRestored = false;
-  // NOTE: config.maxInjectedBytes is reserved for a body-truncation pass (v1.1);
-  // the selection cap (maxSkills) already bounds injected volume today.
 
   // Per-agent set of skill names already injected this session, so a skill whose
   // full body is already in the conversation is not re-injected on later turns.

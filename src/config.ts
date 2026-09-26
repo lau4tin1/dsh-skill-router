@@ -49,7 +49,6 @@ export interface Config {
   minScore: number;
   ratioThreshold: number;
   maxSkills: number;
-  maxInjectedBytes: number;
   /**
    * Optional z-score gate. When set, selection switches to scale-invariant
    * mode: keep skills whose score is >= zThreshold std-devs above the current
@@ -87,7 +86,6 @@ export const Config = z.object({
   minScore: z.number().default(0.2),
   ratioThreshold: z.number().default(0.75),
   maxSkills: z.natural().min(1).default(4),
-  maxInjectedBytes: z.natural().min(1).default(65536),
   // Optional z-score gate. When set, selection switches to scale-invariant
   // mode: keep skills whose score is >= zThreshold std-devs above the current
   // query's mean AND >= minScore (weak floor). Measured on the 24-skill

@@ -119,13 +119,17 @@ async function main(): Promise<void> {
     const selected = result.selected.map((s) => s.name);
 
     const missing = expected.filter((n) => !selected.includes(n));
-    const ok = missing.length === 0 && (expected.length > 0 || selected.length === 0);
+    const extra = selected.filter((n) => !expected.includes(n));
+    const ok = missing.length === 0 && extra.length === 0;
     if (ok) passed += 1;
 
     console.log(`── "${prompt}"`);
     console.log(`   expect: ${expected.length > 0 ? expected.join(', ') : '(none)'}`);
     console.log(`   top   : ${scored.slice(0, 6).map((s) => `${s.name}:${s.score.toFixed(3)}`).join('  ')}`);
     console.log(`   got   : ${selected.length > 0 ? selected.join(', ') : '(none)'}   ${ok ? '✓' : '✗'}`);
+    if (!ok) {
+      console.log(`   mismatch: missing=[${missing.join(', ') || 'none'}] extra=[${extra.join(', ') || 'none'}]`);
+    }
     console.log('');
   }
   console.log(`passed ${passed}/${CASES.length}`);

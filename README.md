@@ -73,7 +73,6 @@ rule: largest-gap                               # or ratio-to-max
 minScore: 0.14                                  # confidence floor (precision > recall)
 ratioThreshold: 0.75
 maxSkills: 4
-maxInjectedBytes: 65536
 ```
 
 ### Languages
