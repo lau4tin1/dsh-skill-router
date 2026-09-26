@@ -35,7 +35,7 @@ it. Requires [dsh](https://github.com/deepseek-ai/deepseek-harness) and pnpm on
 
 - `src/index.ts` — the Cordis plugin entry (`name` / `inject` / `Config` / `apply`).
 - `src/selection.ts` — the selection rule (largest-gap / ratio-to-max, weak floor).
-- `src/similarity.ts` — normalization + cosine similarity (pure).
+- `src/similarity.ts` — cosine similarity + vector helpers (pure).
 - `src/embedding.ts` — one real embedding model via transformers.js (ONNX).
 - `src/skillIndex.ts` — the index: build, embed, digest-diff sync on change.
 - `src/config.ts` — schemastery config schema + mappers.
@@ -70,10 +70,14 @@ embedding:
   dtype: q8                                     # or fp32
 cacheDir: ~/.dsh/skill-router                   # optional; models + index live here
 rule: largest-gap                               # or ratio-to-max
-minScore: 0.14                                  # confidence floor (precision > recall)
+minScore: 0.2                                   # confidence floor (precision > recall)
 ratioThreshold: 0.75
 maxSkills: 4
 ```
+
+The plugin default above is classic gap/ratio mode. The bundled
+`cordis.patch.yml` ships with the scale-invariant override instead:
+`minScore: 0.05` and `zThreshold: 2.5`.
 
 ### Languages
 

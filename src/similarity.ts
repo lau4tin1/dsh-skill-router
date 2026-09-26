@@ -1,33 +1,17 @@
 /**
- * src/similarity.ts — vector math: normalization and cosine similarity.
+ * src/similarity.ts — vector math: cosine similarity and vector helpers.
  *
- * The single, canonical home for the two numeric operations the router uses:
+ * The single, canonical home for the numeric operations the router uses:
  *
- *   - normalize(v) : scale a vector to unit length (L2 norm = 1).
  *   - cosine(a, b) : similarity in [-1, 1]; 1 = same direction, 0 = orthogonal,
  *                    -1 = opposite direction.
+ *   - meanVector(vs) : component-wise mean of several vectors.
+ *   - subtract(a, b) : component-wise subtraction.
  *
- * Both are PURE (no I/O, no DSH, no dependencies) so they stay trivial to test.
- * embedding.ts now reuses normalize() from here instead of keeping its own
- * copy, so there is exactly one source of truth for this math.
+ * These are PURE (no I/O, no DSH, no dependencies) so they stay trivial to test.
  *
  * Design reference: the "score" step in DESIGN.md §3 and §6.
  */
-
-export type Vector = number[];
-
-/**
- * L2-normalize a vector to unit length. Returns a NEW array; the input is
- * never mutated. An all-zero vector has no direction, so it is passed through
- * unchanged (its cosine against anything is 0, handled by cosine()).
- */
-export function normalize(vector: readonly number[]): Vector {
-  let sum = 0;
-  for (const value of vector) sum += value * value;
-  const norm = Math.sqrt(sum);
-  if (norm === 0) return [...vector];
-  return vector.map((value) => value / norm);
-}
 
 /**
  * Cosine similarity between two same-length vectors.
@@ -77,10 +61,6 @@ export function subtract(a: readonly number[], b: readonly number[]): number[] {
 // ---------------------------------------------------------------------------
 
 function main(): void {
-  const v = normalize([3, 4]);
-  console.log(`normalize([3, 4])   = [${v.join(', ')}]`);
-  console.log(`  resulting length  = ${Math.hypot(...v).toFixed(3)}   (unit length)`);
-
   console.log('\ncosine:');
   console.log(`  [1,0] vs [1,0]   = ${cosine([1, 0], [1, 0])}   (same direction)`);
   console.log(`  [1,0] vs [0,1]   = ${cosine([1, 0], [0, 1])}   (orthogonal)`);

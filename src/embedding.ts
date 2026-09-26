@@ -20,6 +20,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { FeatureExtractionPipeline } from '@huggingface/transformers';
+import { cosine } from './similarity.ts';
 
 export type Embedding = number[];
 
@@ -196,17 +197,10 @@ async function main(): Promise<void> {
     console.log(`  dims=${v.length}  head=[${v.slice(0, 5).map((x) => x.toFixed(3)).join(', ')}]`);
   }
 
-  console.log('\ncosine similarity (vectors are unit-length, so cosine == dot):');
+  console.log('\ncosine similarity:');
   console.log(`  pdf pair      : ${cosine(vectors[0], vectors[1]).toFixed(3)}  ("merge pdf" vs "combine pdfs")`);
   console.log(`  pdf vs vercel : ${cosine(vectors[0], vectors[2]).toFixed(3)}`);
   console.log(`  pdf vs pptx   : ${cosine(vectors[0], vectors[3]).toFixed(3)}`);
-}
-
-/** Demo-only convenience; the canonical cosine() lives in src/similarity.ts. */
-function cosine(a: number[], b: number[]): number {
-  let dot = 0;
-  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
-  return dot; // unit-length inputs => dot product == cosine
 }
 
 import { pathToFileURL } from 'node:url';

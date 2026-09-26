@@ -3,8 +3,8 @@
 > A plugin for DeepSeek Harness that embeds skills, embeds the user's task, and
 > auto-injects only the *relevant* skill(s) into the prompt — RAG over skills.
 >
-> **Status:** design only. No code yet. This document is the v1 proposal and the
-> decisions we still need to confirm.
+> **Status:** V1 implemented. This document records the v1 design and the
+> decisions made during implementation; remaining follow-ups are marked below.
 
 ---
 
@@ -262,8 +262,8 @@ two standouts — no fixed per-skill threshold needed.
 - `minScore` is now a **weak floor on the max**, not a per-skill cutoff, so it
   is far less sensitive to the embedding model than a hard per-skill threshold.
 - A single skill has no gap: keep it iff it clears the floor.
-- If more than `maxSkills` survive, keep the top `maxSkills`; cap total bytes
-  with `maxInjectedBytes`; empty selection → inject nothing.
+- If more than `maxSkills` survive, keep the top `maxSkills`; empty selection →
+  inject nothing.
 
 ### 6.3 Simpler alternative — ratio-to-max
 
@@ -296,7 +296,7 @@ select nothing; a query with a strong z-hit but a weak absolute score still
 needs `s >= minScore`, so z never selects from pure noise.
 
 
-### 6.4 The clustering view (what you're reaching for)
+### 6.5 The clustering view (what you're reaching for)
 
 "Standouts" = the top connected component of a 1-D score distribution. The
 largest-gap rule is a degenerate single-split clustering. Other cheap,
@@ -313,7 +313,7 @@ with only a handful of skills and noisy similarities, a fancier clustering can
 overfit — the largest-gap rule (plus the weak floor) is the right v1, and Otsu
 is the natural upgrade if real sessions show it misfiring.
 
-### 6.5 Defaults (placeholders — calibrate per embedding model)
+### 6.6 Defaults (current v1 defaults)
 
 | Param | Default | Meaning |
 |---|---|---|
@@ -322,10 +322,10 @@ is the natural upgrade if real sessions show it misfiring.
 | `zThreshold` | unset | Optional z-score gate. When set, selection keeps skills with `z >= zThreshold` AND `score >= minScore`, bypassing the gap/ratio rule. Scale-invariant; `2.5` splits the measured corpus cleanly (FP z 1.8–2.3, TP z 2.9–3.4). |
 | `ratioThreshold` | `0.75` | Used only when `rule: ratio-to-max`. |
 | `maxSkills` | `4` | Hard cardinality cap. |
-| `maxInjectedBytes` | `65536` | Hard cap on total injected body bytes. |
 
 `rule` and `minScore` must be first-class config and **logged** with the
-per-query scores so they can be tuned against real sessions.
+per-query scores so they can be tuned against real sessions. Per-query score
+logging is still a follow-up.
 
 ---
 
@@ -441,9 +441,9 @@ Keep both as config choices; the router itself is orthogonal to the tool.
 | Embedding endpoint down / not configured | **Fail open**: inject nothing, log a warning. | Router must never block a turn; catch at the embed boundary. |
 | Index not built yet (cold start) | First turn injects nothing. | Lazy build + warm-up; optionally build synchronously when the skill count is small. |
 | Selection too strict | Skills that should load are missed. | Gap rule is scale-free; tune the weak `minScore` floor + `maxSkills`; logged scores. |
-| Selection too loose | Irrelevant or too many skills injected. | Weak `minScore` floor on the max + `maxSkills` + `maxInjectedBytes`. |
+| Selection too loose | Irrelevant or too many skills injected. | Weak `minScore` floor on the max + `maxSkills`. |
 | Overlapping skills | Several near-duplicates all inject. | Same-name dedup is the registry's job; accept near-duplicate injection in v1, revisit with a diversity pass in v2. |
-| Body too large | Context blowup. | `maxInjectedBytes` truncates whole-skill bodies (like `agent-instructions` budget). |
+| Body too large | Context blowup. | `maxSkills` bounds the number of injected bodies; byte-level truncation is a future follow-up. |
 | Catalog changes mid-session | Stale vectors. | Digest-keyed re-embed on `skills/change`. |
 | Query embedding latency | Added per-turn delay. | In-memory query cache; async warm; document the cost. |
 
@@ -467,11 +467,10 @@ Keep both as config choices; the router itself is orthogonal to the tool.
     zThreshold: 2.5            # z-score gate; unset = classic gap/ratio mode (then minScore ~0.2)
     ratioThreshold: 0.75       # only used when rule: ratio-to-max
     maxSkills: 4
-    maxInjectedBytes: 65536
 ```
 
-Exact field names/shapes are to be finalized at implementation against the
-real config schema (schemastery) — this is the shape, not the contract.
+The current contract lives in `src/config.ts`; the bundled plugin patch uses
+the z-score mode shown above.
 
 ---
 
@@ -488,32 +487,28 @@ real config schema (schemastery) — this is the shape, not the contract.
 
 ---
 
-## 12. Open decisions (confirm before code)
+## 12. Decisions made for v1
 
-1. **Embedding provider/model.** External OpenAI-compatible endpoint vs local
-   model. Determines dimensions, cost, latency, and `minScore` calibration.
-2. **Replace vs coexist** with `dsh-tool-skill` (see §8.4).
-3. **Selection rule + weak `minScore` floor** — confirm `largest-gap` vs
-   `ratio-to-max`, and calibrate the floor against a seed set of tasks × skills
-   before trusting any number.
-4. **Exact injection framing** — reuse `<skill_content>` verbatim vs a leaner
-   router-specific block; and whether to include a one-line "why selected"
-   (relevance score) annotation for debuggability.
-5. **Package name** — working name `skill-router` / `dsh-skill-router`; confirm.
+1. **Embedding provider/model.** Local transformers.js with `Xenova/bge-m3` as
+   the default model.
+2. **Replace vs coexist with `dsh-tool-skill`.** The router mounts as a
+   separate plugin; profile configuration decides whether the catalog/tool
+   remains alongside it.
+3. **Selection rule.** `largest-gap` and `ratio-to-max` are both implemented;
+   the bundled patch deploys the optional z-score gate.
+4. **Injection framing.** Reuse `renderSkillContent()` inside a
+   `<system-reminder>` block, matching `dsh-tool-skill`.
+5. **Package name.** `dsh-skill-router`.
 
 ---
 
-## 13. Suggested build order (when we start coding)
+## 13. V1 implementation status
 
-1. Stub embedding backend + index in memory; wire a debug endpoint/log that
-   prints the per-query ranked scores (no injection yet).
-2. Selection rule (§6) as a pure function + unit tests against synthetic score
-   lists (0 / 1 / many / gap / floor cases).
-3. Real embedding backend (OpenAI-compatible).
-4. Index persistence + `skills/change` invalidation.
-5. `agent/pre-step` injection with digest-based replace + escaping.
-6. Config surface + `maxInjectedBytes` budget + logging of scores.
-7. Calibrate thresholds on a seed set of skills and tasks.
+- ✅ Local transformers.js embedding backend (bge-m3 default).
+- ✅ Digest-keyed index persistence and `skills/change` sync.
+- ✅ `largest-gap` / `ratio-to-max` / optional z-score selection.
+- ✅ `agent/pre-step` injection with frame escaping.
+- ⚠️ Automated unit tests and per-query score logging are still follow-ups.
 
 ---
 

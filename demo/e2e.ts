@@ -99,7 +99,9 @@ async function main(): Promise<void> {
   await index.build(skills);
 
   // The plugin's real config path: YAML -> schema -> toSelectionConfig.
-  // minScore defaults to 0.12 (calibrated for the MiniLM model).
+  // The default is classic mode with minScore 0.2; pass an argument to
+  // experiment with the floor. The deployed z-score override lives in
+  // cordis.patch.yml.
   const selection = toSelectionConfig(Config({}));
   if (process.argv[2] !== undefined) {
     selection.minScore = Number(process.argv[2]);
