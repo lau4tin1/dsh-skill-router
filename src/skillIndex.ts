@@ -65,6 +65,9 @@ export interface SyncReport {
 export class SkillIndex {
   private readonly backend: EmbeddingBackend;
   private readonly entries = new Map<string, IndexEntry>();
+  private derivedDirty = true;
+  private cachedCenter: number[] | undefined;
+  private readonly cachedCentered = new Map<string, number[]>();
 
   constructor(backend: EmbeddingBackend) {
     this.backend = backend;
@@ -97,6 +100,7 @@ export class SkillIndex {
       this.entries.set(entry.name, entry);
       added.push(entry.name);
     }
+    this.invalidateDerivedCache();
     return { added, removed: [], changed: [], unchanged: 0 };
   }
 
@@ -151,6 +155,7 @@ export class SkillIndex {
     for (const name of removed) {
       this.entries.delete(name);
     }
+    this.invalidateDerivedCache();
 
     return { added, removed, changed, unchanged };
   }
@@ -227,6 +232,7 @@ export class SkillIndex {
         routingDigest: entry.routingDigest,
       });
     }
+    this.invalidateDerivedCache();
     return true;
   }
 
@@ -235,7 +241,8 @@ export class SkillIndex {
    * Used to de-bias anisotropic embeddings before scoring (see score()).
    */
   centerVector(): number[] | undefined {
-    return meanVector([...this.entries.values()].map((entry) => entry.vector));
+    this.ensureDerivedCache();
+    return this.cachedCenter;
   }
 
   /**
@@ -252,11 +259,14 @@ export class SkillIndex {
     // A one-skill corpus has no meaningful center: its mean is the only vector
     // itself, so subtracting it would turn the sole comparison into a zero
     // vector and cosine would always be 0.
-    const center = this.entries.size < 2 ? undefined : this.centerVector();
+    this.ensureDerivedCache();
+    const center = this.cachedCenter;
     const q = center === undefined ? query : subtract(query, center);
     const scored: ScoredSkill[] = [];
     for (const entry of this.entries.values()) {
-      let v = center === undefined ? entry.vector : subtract(entry.vector, center);
+      let v = center === undefined
+        ? entry.vector
+        : this.cachedCentered.get(entry.name) ?? subtract(entry.vector, center);
       // Guard against a degenerate centered vector: if the corpus is all
       // identical, centering collapses every entry to zero. In that case fall
       // back to the raw vector pair so cosine still produces a real score.
@@ -268,6 +278,31 @@ export class SkillIndex {
       }
     }
     return scored;
+  }
+
+  /**
+   * Recompute the corpus center and per-entry centered vectors only when the
+   * entry set changes. These values are queried once per agent step, but are
+   * otherwise constant between index updates.
+   */
+  private ensureDerivedCache(): void {
+    if (!this.derivedDirty) return;
+
+    const vectors = [...this.entries.values()].map((entry) => entry.vector);
+    this.cachedCenter = vectors.length < 2 ? undefined : meanVector(vectors);
+    this.cachedCentered.clear();
+    if (this.cachedCenter !== undefined) {
+      for (const entry of this.entries.values()) {
+        this.cachedCentered.set(entry.name, subtract(entry.vector, this.cachedCenter));
+      }
+    }
+    this.derivedDirty = false;
+  }
+
+  private invalidateDerivedCache(): void {
+    this.derivedDirty = true;
+    this.cachedCenter = undefined;
+    this.cachedCentered.clear();
   }
 
   /** Embed a batch of skills into IndexEntry objects (order preserved). */
