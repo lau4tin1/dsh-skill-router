@@ -1,3 +1,6 @@
+![dafeiyu](dfy.png)
+
+
 # Skill Router for DeepSeek Harness
 
 RAG-style skill routing plugin for DeepSeek Harness: embeds skills (their
