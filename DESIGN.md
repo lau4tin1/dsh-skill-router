@@ -5,6 +5,13 @@
 >
 > **Status:** V1 implemented. This document records the v1 design and the
 > decisions made during implementation; remaining follow-ups are marked below.
+>
+> **DSH compatibility:** peer range `>=0.1.5-rc.2 <0.3.0-0` on
+> `@deepseek-ai/dsh-agent` / `dsh-llm` / `dsh-skill` — verified against both
+> `0.1.5-rc.2` (CLI/headless/web) and `0.2.0-rc.2` (desktop). DSH's
+> plugin-manager checks only these `dsh-*` peers (not `cordis`, not ordinary
+> deps) with `semver.satisfies(…, { includePrerelease: true })`, and every
+> routing API the router uses is unchanged in `0.2.0-rc.2`.
 
 ---
 
@@ -499,6 +506,9 @@ the z-score mode shown above.
 4. **Injection framing.** Reuse `renderSkillContent()` inside a
    `<system-reminder>` block, matching `dsh-tool-skill`.
 5. **Package name.** `dsh-skill-router`.
+6. **DSH peer range.** `>=0.1.5-rc.2 <0.3.0-0` (see the status note above);
+   a single range spanning the `0.1.x` and `0.2.x` runtime lines, excluding
+   `0.3.0` prereleases. `cordis` stays `^4.0.2` (not checked by DSH).
 
 ---
 
@@ -508,7 +518,12 @@ the z-score mode shown above.
 - ✅ Digest-keyed index persistence and `skills/change` sync.
 - ✅ `largest-gap` / `ratio-to-max` / optional z-score selection.
 - ✅ `agent/pre-step` injection with frame escaping.
+- ✅ Centered scoring, single-skill centering edge case, and cached centered vectors.
 - ⚠️ Automated unit tests and per-query score logging are still follow-ups.
+
+Shipped in `dsh-skill-router@0.2.0` (the z-score gate, centered-vector cache,
+single-skill centering fix, and error recording landed after the `0.1.0`
+release).
 
 ---
 

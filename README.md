@@ -1,7 +1,9 @@
+# Welcome to DSH-SKILL-ROUTER!
+
 ![dafeiyu](dfy.png)
 
 
-# Skill Router for DeepSeek Harness
+# A Skill Router for DeepSeek Harness
 
 RAG-style skill routing plugin for DeepSeek Harness: embeds skills (their
 `name + description + whenToUse` routing surface), embeds each user task, keeps
@@ -13,7 +15,11 @@ skill.
 - **Status**: V1 complete and running — type-checks against the real DSH
   `0.1.5-rc.2` types, builds, mounts in a live DSH profile (verified in the
   web and headless profiles), and passes 20/24 bilingual routing prompts on
-  real skills (`node demo/e2e.ts`).
+  real skills (`node demo/e2e.ts`). Compatible with DSH `0.1.5-rc.2` through
+  `0.2.0-rc.2` (peer range `>=0.1.5-rc.2 <0.3.0-0`); all routing APIs it uses —
+  `ctx.skills.snapshot/get`, `skills/change`, `renderSkillContent`,
+  `createUserMessage`, and the `agent/pre-step` middleware — are unchanged in
+  `0.2.0-rc.2`.
 
 ## Install
 

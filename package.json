@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-router",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "RAG-style skill router for DeepSeek Harness: embeds skills, matches user tasks by similarity, and auto-injects the relevant skill bodies.",
   "license": "MIT",
   "dsh": {
@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "3.18.2",
+    "@deepseek-ai/schemastery": "^3.18.2",
     "@huggingface/transformers": "^4.2.0"
   },
   "devDependencies": {
@@ -36,8 +36,8 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-agent": "^0.1.5-rc.2",
-    "@deepseek-ai/dsh-llm": "^0.1.5-rc.2",
-    "@deepseek-ai/dsh-skill": "^0.1.5-rc.2"
+    "@deepseek-ai/dsh-agent": ">=0.1.5-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-llm": ">=0.1.5-rc.2 <0.3.0-0",
+    "@deepseek-ai/dsh-skill": ">=0.1.5-rc.2 <0.3.0-0"
   }
 }
